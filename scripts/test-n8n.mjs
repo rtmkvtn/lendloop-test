@@ -34,7 +34,7 @@ async function convexRun(args) {
     timeoutMs: 60_000,
   });
   if (!res.ok) throw new Error(`convex run ${args[0]} failed:\n${res.output}`);
-  return JSON.parse(res.stdout);
+  return res.stdout.trim() ? JSON.parse(res.stdout) : null;
 }
 
 const call = (fn, args, as) =>
@@ -46,17 +46,20 @@ function addDaysUtc(days) {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-async function postToN8n(body, { secret = C2N, ts, signed = true } = {}) {
+async function postToN8n(
+  body,
+  { secret = C2N, ts, signed = true, path = WEBHOOK_PATH } = {},
+) {
   const timestamp = ts ?? String(Math.floor(Date.now() / 1000));
   const headers = { "content-type": "application/json" };
   if (signed) {
     const hex = createHmac("sha256", secret)
-      .update(`${timestamp}.POST.${WEBHOOK_PATH}.${body}`)
+      .update(`${timestamp}.POST.${path}.${body}`)
       .digest("hex");
     headers["x-lendloop-timestamp"] = timestamp;
     headers["x-lendloop-signature"] = `v1=${hex}`;
   }
-  return await fetch(`${N8N}${WEBHOOK_PATH}`, {
+  return await fetch(`${N8N}${path}`, {
     method: "POST",
     headers,
     body,
@@ -195,6 +198,124 @@ describe("Notifications through the real stack", () => {
       assert.equal(res.status, 401);
       await sleep(1000);
       assert.equal((await mailCount(to)).count, 0);
+    });
+  }
+});
+
+describe("Reminders through the real stack", () => {
+  const REMINDERS_PATH = "/webhook/reminders/run";
+  const omar = identity("omar", "Omar");
+  const borrowers = [identity("cleo", "Cleo"), identity("dev", "Dev")];
+  const loanIds = [];
+
+  const remindersOf = (loanId) =>
+    inlineQuery(
+      `(await ctx.db.query("automationEvents").withIndex("by_request", (q) => q.eq("requestId", ${JSON.stringify(loanId)})).collect()).filter((e) => e.kind === "reminder")`,
+    );
+
+  const lastRunAt = async () =>
+    (
+      await inlineQuery(
+        `await ctx.db.query("automationState").withIndex("by_key", (q) => q.eq("key", "reminders")).unique()`,
+      )
+    )?.lastReminderRunAt ?? 0;
+
+  // Borrowers also get the approval Notification, so count Reminders by subject.
+  const reminderMail = async (to) =>
+    (await mailCount(to)).messages.filter((m) =>
+      m.Subject.startsWith("Reminder: "),
+    );
+
+  const sentCounts = async () =>
+    await Promise.all(
+      borrowers.map(async (b) => (await reminderMail(b.email)).length),
+    );
+
+  before(async () => {
+    await call("users:ensureMe", {}, omar);
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+    for (const [i, borrower] of borrowers.entries()) {
+      await call("users:ensureMe", {}, borrower);
+      const toolId = await call(
+        "tools:create",
+        {
+          name: `Test hedge trimmer ${i} ${RUN}`,
+          category: "garden",
+          condition: "good",
+          description: "Created by npm run test:n8n.",
+        },
+        anna,
+      );
+      const loanId = await call(
+        "requests:create",
+        { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+        borrower,
+      );
+      await call("requests:approve", { requestId: loanId }, anna);
+      await convexRun([
+        "devSupport:backdateLoan",
+        JSON.stringify({
+          requestId: loanId,
+          startDate: addDaysUtc(-6 - i),
+          endDate: addDaysUtc(-2 - i),
+        }),
+      ]);
+      loanIds.push(loanId);
+    }
+  });
+
+  test("Run reminders now emails each Overdue Borrower once and marks the Reminder sent", async () => {
+    await call("admin:runRemindersNow", {}, omar);
+    for (const [i, borrower] of borrowers.entries()) {
+      const messages = await until(async () => {
+        const mail = await reminderMail(borrower.email);
+        return mail.length >= 1 && mail;
+      }, `the Reminder to ${borrower.givenName}`);
+      assert.equal(messages.length, 1);
+      assert.match(
+        messages[0].Subject,
+        new RegExp(
+          `^Reminder: the Test hedge trimmer ${i} ${RUN} was due back`,
+        ),
+      );
+      const [row] = await until(async () => {
+        const rows = await remindersOf(loanIds[i]);
+        return rows[0]?.status === "sent" && rows;
+      }, `the Reminder for ${borrower.givenName} to be sent`);
+      assert.match(row.idempotencyKey, /^reminder:[^:]+:\d{4}-\d{2}-\d{2}$/);
+      assert.equal(row.attempts, 1);
+    }
+  });
+
+  test("a second run the same day sends no second email", async () => {
+    const before = await lastRunAt();
+    const res = await postToN8n(
+      JSON.stringify({ requestedAt: new Date().toISOString() }),
+      { path: REMINDERS_PATH },
+    );
+    assert.equal(res.status, 202);
+    await until(
+      async () => (await lastRunAt()) > before,
+      "the second run to reach Convex",
+    );
+    await sleep(5000);
+    assert.deepEqual(await sentCounts(), [1, 1]);
+    for (const loanId of loanIds) {
+      assert.equal((await remindersOf(loanId)).length, 1);
+    }
+  });
+
+  for (const [label, options] of [
+    ["unsigned", { signed: false }],
+    ["signed with the n8n → Convex secret", { secret: N2C }],
+    ["stale (400 s old)", { ts: String(Math.floor(Date.now() / 1000) - 400) }],
+  ]) {
+    test(`a manual trigger that is ${label} gets 401 and starts no run`, async () => {
+      const before = await lastRunAt();
+      const res = await postToN8n("{}", { ...options, path: REMINDERS_PATH });
+      assert.equal(res.status, 401);
+      await sleep(2000);
+      assert.equal(await lastRunAt(), before);
     });
   }
 });
