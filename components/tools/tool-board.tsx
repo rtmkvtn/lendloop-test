@@ -3,7 +3,12 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
+import {
+  RequestToolDrawer,
+  type RequestableTool,
+} from "@/components/requests/request-tool-drawer";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -24,6 +29,7 @@ import { AvailabilityText, TrustedBadge } from "./tool-labels";
 export function ToolBoard() {
   const [category, setCategory] = useState<Category | null>(null);
   const tools = useQuery(api.tools.listBoard, category ? { category } : {});
+  const [requesting, setRequesting] = useState<RequestableTool | null>(null);
 
   return (
     <section className="space-y-4">
@@ -79,13 +85,27 @@ export function ToolBoard() {
                   <AvailabilityText availability={tool.availability} />
                 </TableCell>
                 <TableCell className="text-right">
-                  {tool.isMine && <Badge variant="outline">Yours</Badge>}
+                  {tool.isMine ? (
+                    <Badge variant="outline">Yours</Badge>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRequesting(tool)}
+                    >
+                      Request
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
+      <RequestToolDrawer
+        tool={requesting}
+        onClose={() => setRequesting(null)}
+      />
     </section>
   );
 }

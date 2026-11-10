@@ -490,6 +490,7 @@ describe("request views", () => {
         status: "pending",
         startDate: "2026-11-12",
         endDate: "2026-11-14",
+        overdue: false,
         tool: { name: drill.name, removed: false },
         lender: { name: ANNA.name, trusted: true },
         borrower: { name: BEN.name },
@@ -514,6 +515,25 @@ describe("request views", () => {
       [BEN.name, "pending", ["approve", "decline"]],
     ]);
     expect(await c.ben.as.query(api.requests.listIncoming, {})).toEqual([]);
+  });
+
+  test("flags an unreturned Loan past its end date as overdue, not one ending today", async () => {
+    const c = await withPendingRequest();
+    await c.anna.as.mutation(api.requests.approve, { requestId: c.requestId });
+    vi.setSystemTime(new Date("2026-11-14T22:00:00Z"));
+    expect((await c.ben.as.query(api.requests.listMine, {}))[0]?.overdue).toBe(
+      false,
+    );
+    vi.setSystemTime(new Date("2026-11-15T01:00:00Z"));
+    expect((await c.ben.as.query(api.requests.listMine, {}))[0]?.overdue).toBe(
+      true,
+    );
+    await c.anna.as.mutation(api.requests.markReturned, {
+      requestId: c.requestId,
+    });
+    expect((await c.ben.as.query(api.requests.listMine, {}))[0]?.overdue).toBe(
+      false,
+    );
   });
 
   test("offers only Decline on a pending Request whose end date has passed", async () => {

@@ -57,6 +57,7 @@ async function toRow(ctx: Ctx, request: Doc<"requests">, today: string) {
     status: request.status,
     startDate: request.startDate,
     endDate: request.endDate,
+    overdue: request.status === "approved" && request.endDate < today,
     tool: {
       name: tool?.name ?? "A removed Tool",
       removed: !tool || tool.removedAt !== undefined,

@@ -161,7 +161,8 @@ function DeleteToolDialog({
         <DialogHeader>
           <DialogTitle>Delete {tool?.name}?</DialogTitle>
           <DialogDescription>
-            It leaves the board straight away. This can&apos;t be undone.
+            It leaves the board straight away, and any pending Requests for it
+            are declined. This can&apos;t be undone.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
