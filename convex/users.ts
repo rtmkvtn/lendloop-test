@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { fail } from "./lib/errors";
+import { promoteByEmail } from "./lib/members";
 import {
   internalMutation,
   publicQuery,
@@ -66,18 +67,12 @@ export const promote = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const email = normaliseEmail(args.email);
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
+    const user = await promoteByEmail(ctx, email);
     if (!user) {
       fail(
         "NOT_FOUND",
         `No Member with email ${email}. They must sign in once before they can be promoted.`,
       );
-    }
-    if (user.role !== "admin") {
-      await ctx.db.patch("users", user._id, { role: "admin" });
     }
     return { email: user.email, role: "admin" as const };
   },
