@@ -400,6 +400,39 @@ describe("POST /automation/notifications (n8n write-back)", () => {
     expect(event.lastError!.length).toBeLessThanOrEqual(200);
   });
 
+  test.each([
+    ["connect ECONNREFUSED mailpit:1025", "connect ECONNREFUSED [host]"],
+    ["getaddrinfo ENOTFOUND mailpit", "getaddrinfo ENOTFOUND [host]"],
+    ["getaddrinfo EAI_AGAIN smtp.internal", "getaddrinfo EAI_AGAIN [host]"],
+    [
+      "POST http://convex-backend:3211/automation/notifications failed",
+      "POST [url] failed",
+    ],
+    ["connect ECONNREFUSED [fd00::3]:1025", "connect ECONNREFUSED [host]"],
+    ["connect ECONNREFUSED ::1:1025", "connect ECONNREFUSED [host]"],
+    [
+      "Connection timeout to smtp.lan.example.org:587",
+      "Connection timeout to [host]",
+    ],
+    [
+      "connect ECONNREFUSED to anna@example.com",
+      "connect ECONNREFUSED to [email]",
+    ],
+    [
+      "this.helpers.send is not a function",
+      "this.helpers.send is not a function",
+    ],
+    ["n8n answered 503", "n8n answered 503"],
+    ["Timeout after 10.5 s", "Timeout after 10.5 s"],
+  ])(
+    "failed keeps internal hosts out of lastError: %s",
+    async (error, kept) => {
+      const { t, eventId } = await accepted();
+      await writeBack(t, { eventId, status: "failed", error });
+      expect((await statusOf(t, eventId)).lastError).toBe(kept);
+    },
+  );
+
   test("a sent after failed wins", async () => {
     const { t, eventId } = await accepted();
     await writeBack(t, { eventId, status: "failed", error: "smtp down" });

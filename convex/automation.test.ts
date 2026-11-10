@@ -84,6 +84,19 @@ describe("POST /automation/errors (Error Workflow)", () => {
     expect(rows[0]!.lastError).toContain("status code 500");
   });
 
+  test("keeps internal hosts out of the stored error", async () => {
+    const t = newTest();
+    await postError(t, {
+      ...FAILURE,
+      error:
+        "The connection to http://convex-backend:3211/automation/reminders was refused: connect ECONNREFUSED 172.21.0.3:3211",
+    });
+    const [row] = await events(t);
+    expect(row!.lastError).toBe(
+      "The connection to [url] was refused: connect ECONNREFUSED [host]",
+    );
+  });
+
   test("drops an execution link that isn't http(s)", async () => {
     const t = newTest();
     await postError(t, { ...FAILURE, executionUrl: "javascript:alert(1)" });
