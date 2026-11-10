@@ -5,6 +5,11 @@ import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { memberMutation, memberQuery, type Me } from "./lib/functions";
 import { displayName } from "./lib/members";
+import {
+  activityOf,
+  automationEventsOf,
+  queueNotification,
+} from "./lib/notifications";
 import { MAX_REQUEST_DAYS } from "./lib/requestFields";
 import {
   allowedActions,
@@ -46,11 +51,13 @@ async function loadRequestAsBorrower(ctx: Ctx, requestId: Id<"requests">) {
 }
 
 async function toRow(ctx: Ctx, request: Doc<"requests">, today: string) {
-  const [tool, lender, borrower] = await Promise.all([
+  const [tool, lender, borrower, events] = await Promise.all([
     ctx.db.get("tools", request.toolId),
     ctx.db.get("users", request.lenderId),
     ctx.db.get("users", request.borrowerId),
+    automationEventsOf(ctx, request._id),
   ]);
+  const latest = events.at(-1);
   return {
     _id: request._id,
     _creationTime: request._creationTime,
@@ -68,6 +75,7 @@ async function toRow(ctx: Ctx, request: Doc<"requests">, today: string) {
     },
     borrower: { name: displayName(borrower) },
     actions: allowedActions(request, ctx.me._id, today),
+    activity: latest ? activityOf(latest) : null,
   };
 }
 
@@ -101,14 +109,21 @@ export const create = memberMutation({
     }
     await assertNoLoanOverlap(ctx, toolId, { startDate, endDate });
 
-    return await ctx.db.insert("requests", {
+    const request = {
       toolId,
       borrowerId: ctx.me._id,
       lenderId: tool.ownerId,
       startDate,
       endDate,
-      status: "pending",
-    });
+      status: "pending" as const,
+    };
+    const requestId = await ctx.db.insert("requests", request);
+    await queueNotification(
+      ctx,
+      { _id: requestId, ...request },
+      "request.created",
+    );
+    return requestId;
   },
 });
 
@@ -213,12 +228,25 @@ export const get = memberQuery({
       .query("auditLog")
       .withIndex("by_target", (q) => q.eq("target", request._id))
       .collect();
+    const events = await automationEventsOf(ctx, request._id);
     const history = [
-      { label: "Requested", at: request._creationTime },
-      ...audit.map((row) => ({
-        label: HISTORY_LABELS[row.action] ?? row.action,
-        at: row.at,
-      })),
+      { label: "Requested", at: request._creationTime, failed: false },
+      ...[
+        ...audit.map((row) => ({
+          entry: {
+            label: HISTORY_LABELS[row.action] ?? row.action,
+            at: row.at,
+            failed: false,
+          },
+          order: row._creationTime,
+        })),
+        ...events.map((event) => ({
+          entry: activityOf(event),
+          order: event._creationTime,
+        })),
+      ]
+        .sort((a, b) => a.entry.at - b.entry.at || a.order - b.order)
+        .map(({ entry }) => entry),
     ];
 
     return {

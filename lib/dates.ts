@@ -32,3 +32,15 @@ const MOMENT_FORMAT = new Intl.DateTimeFormat("en-GB", {
 export function formatMoment(ms: number) {
   return MOMENT_FORMAT.format(new Date(ms));
 }
+
+function localDay(ms: number) {
+  const d = new Date(ms);
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function relativeDay(ms: number, now: number = Date.now()) {
+  const days = Math.round((localDay(now) - localDay(ms)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}

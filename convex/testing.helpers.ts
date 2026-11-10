@@ -23,6 +23,7 @@ export async function seedViewer(t: TestConvex, spec: ViewerSpec) {
     ctx.db.insert("users", {
       tokenIdentifier: `${TEST_ISSUER}|${spec.subject}`,
       name: spec.name,
+      firstName: spec.name.split(" ")[0] ?? spec.name,
       email: spec.email,
       role: spec.role ?? "user",
       trustedLender: spec.trustedLender ?? false,
