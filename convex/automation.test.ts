@@ -574,6 +574,36 @@ describe("admin.automationHealth", () => {
     expect(JSON.stringify(health)).not.toContain("@example.com");
   });
 
+  test("a burst of workflow errors doesn't hide a failed email", async () => {
+    const { t, omar } = await circle();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("automationEvents", {
+        kind: "notification",
+        event: "request.created",
+        idempotencyKey: "notify:old:request.created",
+        status: "failed",
+        attempts: 5,
+        lastError: "n8n answered 503",
+        updatedAt: Date.now() - 60_000,
+      });
+      for (let i = 0; i < 150; i++) {
+        await ctx.db.insert("automationEvents", {
+          kind: "workflow_error",
+          event: "n8n.execution_failed",
+          idempotencyKey: `workflow_error:n8n:${i}`,
+          status: "failed",
+          attempts: 1,
+          lastError: "boom",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    const health = await omar.as.query(api.admin.automationHealth, {});
+    expect(health.events).toEqual([
+      expect.objectContaining({ kind: "notification", status: "failed" }),
+    ]);
+  });
+
   test("is Admin only", async () => {
     const { t, ben } = await circle();
     await expect(

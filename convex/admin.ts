@@ -92,22 +92,23 @@ export const setTrustedLender = adminMutation({
 export const listLenders = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const users = await ctx.db.query("users").collect();
-    const rows = await Promise.all(
-      users.map(async (user) => {
-        const tools = await ctx.db
-          .query("tools")
-          .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
-          .collect();
-        return {
-          _id: user._id,
-          name: displayName(user),
-          trusted: user.trustedLender,
-          listings: tools.filter((t) => t.removedAt === undefined).length,
-        };
-      }),
-    );
-    return rows.sort((a, b) => a.name.localeCompare(b.name));
+    const [users, tools] = await Promise.all([
+      ctx.db.query("users").collect(),
+      ctx.db.query("tools").collect(),
+    ]);
+    const listings = new Map<string, number>();
+    for (const tool of tools) {
+      if (tool.removedAt !== undefined) continue;
+      listings.set(tool.ownerId, (listings.get(tool.ownerId) ?? 0) + 1);
+    }
+    return users
+      .map((user) => ({
+        _id: user._id,
+        name: displayName(user),
+        trusted: user.trustedLender,
+        listings: listings.get(user._id) ?? 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
@@ -196,27 +197,31 @@ export const automationHealth = adminQuery({
   handler: async (ctx) => {
     const now = Date.now();
     const cutoff = now - STUCK_AFTER_MS;
-    const byStatus = (status: "failed" | "accepted" | "pending") =>
+    // Per kind, so a burst of workflow errors can't crowd failed emails out.
+    const byKindAndStatus = (
+      kind: "notification" | "reminder",
+      status: "failed" | "accepted" | "pending",
+    ) =>
       ctx.db
         .query("automationEvents")
-        .withIndex("by_status_updatedAt", (q) =>
+        .withIndex("by_kind_status_updatedAt", (q) =>
           status === "failed"
-            ? q.eq("status", status)
-            : q.eq("status", status).lt("updatedAt", cutoff),
+            ? q.eq("kind", kind).eq("status", status)
+            : q.eq("kind", kind).eq("status", status).lt("updatedAt", cutoff),
         )
         .order("desc")
-        .take(HEALTH_LIMIT * 2);
+        .take(HEALTH_LIMIT);
     const candidates = (
       await Promise.all(
-        (["failed", "accepted", "pending"] as const).map(byStatus),
+        (["notification", "reminder"] as const).flatMap((kind) =>
+          (["failed", "accepted", "pending"] as const).map((status) =>
+            byKindAndStatus(kind, status),
+          ),
+        ),
       )
     ).flat();
     const troubled = candidates
-      .filter(
-        (e) =>
-          e.kind !== "workflow_error" &&
-          (e.status === "failed" || isStuck(e, now)),
-      )
+      .filter((e) => e.status === "failed" || isStuck(e, now))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, HEALTH_LIMIT);
 
