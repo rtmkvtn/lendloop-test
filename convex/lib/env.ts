@@ -22,3 +22,7 @@ export function n8nToConvexSecret() {
 export function n8nNotifyWebhookUrl() {
   return optional("N8N_NOTIFY_WEBHOOK_URL");
 }
+
+export function n8nRemindersWebhookUrl() {
+  return optional("N8N_REMINDERS_WEBHOOK_URL");
+}

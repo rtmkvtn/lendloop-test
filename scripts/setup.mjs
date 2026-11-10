@@ -84,6 +84,7 @@ const functionEnv = {
       "CONVEX_TO_N8N_SECRET",
       "N8N_TO_CONVEX_SECRET",
       "N8N_NOTIFY_WEBHOOK_URL",
+      "N8N_REMINDERS_WEBHOOK_URL",
     ].map((name) => {
       const value = process.env[name]?.trim();
       if (!value) die(`${name} is missing from .env (see .env.example).`);

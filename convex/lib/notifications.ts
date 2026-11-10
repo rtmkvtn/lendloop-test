@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { NotificationEvent } from "./automationFields";
+import { REMINDER_EVENT } from "./reminders";
 
 const TO_LENDER: readonly NotificationEvent[] = [
   "request.created",
@@ -56,6 +57,7 @@ const SUBJECT: Record<string, string> = {
   "request.declined": "Decline email to borrower",
   "request.auto_declined": "Decline email to borrower",
   "request.returned": "Return email to borrower",
+  [REMINDER_EVENT]: "Reminder",
 };
 
 export function activityOf(event: Doc<"automationEvents">) {

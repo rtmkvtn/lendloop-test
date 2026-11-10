@@ -68,6 +68,12 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_request", ["requestId"]),
 
+  // One row per automation, so a dead n8n schedule is visible from Convex.
+  automationState: defineTable({
+    key: v.literal("reminders"),
+    lastReminderRunAt: v.number(),
+  }).index("by_key", ["key"]),
+
   // Append-only: rows are inserted through lib/audit.ts and never patched or deleted.
   auditLog: defineTable({
     actorId: v.id("users"),
