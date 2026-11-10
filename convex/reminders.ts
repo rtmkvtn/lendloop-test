@@ -4,14 +4,12 @@ import { sanitiseError } from "./lib/automationFields";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { convexToN8nSecret, n8nRemindersWebhookUrl } from "./lib/env";
 import { internalAction, internalMutation } from "./lib/functions";
+import { postSigned, webhookUrl } from "./lib/n8nClient";
 import {
   parseReminderKey,
   REMINDER_EVENT,
   reminderKeyOf,
 } from "./lib/reminders";
-import { signedHeaders } from "./lib/signature";
-
-const TIMEOUT_MS = 10_000;
 
 export const overdueLoans = internalMutation({
   args: {},
@@ -119,33 +117,20 @@ export const recordWriteBack = internalMutation({
 });
 
 async function startRun(): Promise<string | null> {
-  const url = n8nRemindersWebhookUrl();
   const secret = convexToN8nSecret();
-  if (!url || !secret) {
+  if (!n8nRemindersWebhookUrl() || !secret) {
     return "Reminders are not configured: set N8N_REMINDERS_WEBHOOK_URL and CONVEX_TO_N8N_SECRET";
   }
-  const body = JSON.stringify({ requestedAt: new Date().toISOString() });
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(await signedHeaders(secret, {
-          method: "POST",
-          path: new URL(url).pathname,
-          body,
-        })),
-      },
-      body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (e) {
-    const timedOut =
-      e instanceof Error && ["TimeoutError", "AbortError"].includes(e.name);
-    return timedOut ? "n8n did not answer within 10 s" : "Could not reach n8n";
+  const url = webhookUrl(n8nRemindersWebhookUrl());
+  if (!url) {
+    return "Reminders are not configured: N8N_REMINDERS_WEBHOOK_URL is not an http(s) URL";
   }
-  return res.ok ? null : `n8n answered ${res.status}`;
+  const body = JSON.stringify({ requestedAt: new Date().toISOString() });
+  const res = await postSigned(url, secret, body);
+  if ("error" in res) return res.error;
+  return res.status >= 200 && res.status < 300
+    ? null
+    : `n8n answered ${res.status}`;
 }
 
 export const triggerRun = internalAction({

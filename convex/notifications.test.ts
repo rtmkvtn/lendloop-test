@@ -278,6 +278,23 @@ describe("delivery to n8n", () => {
     });
   });
 
+  test("a malformed webhook URL fails the event instead of leaving it queued", async () => {
+    vi.stubEnv(
+      "N8N_NOTIFY_WEBHOOK_URL",
+      "n8n:5678/webhook/lendloop/request-event",
+    );
+    const { t, requestId } = await circle();
+    await runScheduled(t);
+    expect(calls).toHaveLength(0);
+    expect(
+      await eventFor(t, `notify:${requestId}:request.created`),
+    ).toMatchObject({
+      status: "failed",
+      lastError:
+        "Notifications are not configured: N8N_NOTIFY_WEBHOOK_URL is not an http(s) URL",
+    });
+  });
+
   test("keeps the event pending with the error while it retries", async () => {
     respond = async () => new Response(null, { status: 500 });
     const { t, requestId } = await circle();
@@ -424,6 +441,7 @@ describe("POST /automation/notifications (n8n write-back)", () => {
     ],
     ["n8n answered 503", "n8n answered 503"],
     ["Timeout after 10.5 s", "Timeout after 10.5 s"],
+    ["Retry after 12:30:45", "Retry after 12:30:45"],
   ])(
     "failed keeps internal hosts out of lastError: %s",
     async (error, kept) => {

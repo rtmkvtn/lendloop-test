@@ -8,11 +8,10 @@ import {
   internalQuery,
 } from "./lib/functions";
 import { deliveryIdOf } from "./lib/notifications";
-import { signedHeaders } from "./lib/signature";
+import { postSigned, webhookUrl } from "./lib/n8nClient";
 
 const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [30_000, 120_000, 600_000, 3_600_000];
-const TIMEOUT_MS = 10_000;
 
 export const loadDelivery = internalQuery({
   args: { eventId: v.id("automationEvents") },
@@ -91,12 +90,18 @@ export const deliver = internalAction({
     if (delivery.missing) {
       return await record("failed", "The Request, Tool or recipient is gone");
     }
-    const url = n8nNotifyWebhookUrl();
     const secret = convexToN8nSecret();
-    if (!url || !secret) {
+    if (!n8nNotifyWebhookUrl() || !secret) {
       return await record(
         "failed",
         "Notifications are not configured: set N8N_NOTIFY_WEBHOOK_URL and CONVEX_TO_N8N_SECRET",
+      );
+    }
+    const url = webhookUrl(n8nNotifyWebhookUrl());
+    if (!url) {
+      return await record(
+        "failed",
+        "Notifications are not configured: N8N_NOTIFY_WEBHOOK_URL is not an http(s) URL",
       );
     }
 
@@ -107,36 +112,12 @@ export const deliver = internalAction({
       sentAt: new Date().toISOString(),
       ...rest,
     });
-    const headers = {
-      "Content-Type": "application/json",
-      ...(await signedHeaders(secret, {
-        method: "POST",
-        path: new URL(url).pathname,
-        body,
-      })),
-    };
-
-    let status: number;
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      status = res.status;
-    } catch (e) {
-      const timedOut =
-        e instanceof Error && ["TimeoutError", "AbortError"].includes(e.name);
-      return await record(
-        "retry",
-        timedOut ? "n8n did not answer within 10 s" : "Could not reach n8n",
-      );
-    }
-    if (status >= 200 && status < 300) return await record("accepted");
+    const res = await postSigned(url, secret, body);
+    if ("error" in res) return await record("retry", res.error);
+    if (res.status >= 200 && res.status < 300) return await record("accepted");
     return await record(
-      status >= 500 ? "retry" : "failed",
-      `n8n answered ${status}`,
+      res.status >= 500 ? "retry" : "failed",
+      `n8n answered ${res.status}`,
     );
   },
 });

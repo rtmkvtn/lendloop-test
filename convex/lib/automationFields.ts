@@ -56,7 +56,8 @@ const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
 const IPV6_BRACKETED_RE = /\[[0-9a-f:.]*:[0-9a-f:.]*\](?::\d+)?/gi;
 const IPV6_RE = /(?<![\w:])(?=[0-9a-f:.]*::)(?:[0-9a-f]{0,4}:){2,}[0-9a-f.]*/gi;
 const IPV4_RE = /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g;
-const HOST_PORT_RE = /\b[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?:\d{2,5}\b/gi;
+const HOST_PORT_RE =
+  /\b(?=[a-z0-9.-]*[a-z])[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?:\d{2,5}\b/gi;
 // DNS failures name the host right after the code.
 const DNS_FAILURE_RE = /\b(ENOTFOUND|EAI_AGAIN)\s+[^\s,;)]+/g;
 const MAX_ERROR = 200;
