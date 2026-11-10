@@ -307,6 +307,18 @@ describe("POST /automation/reminders (n8n write-back)", () => {
     expect(rows[0]!.lastError).toBeUndefined();
   });
 
+  test("failed keeps the internal SMTP address out of lastError", async () => {
+    const { t, loan } = await circle();
+    const reminderKey = `reminder:${await loan("2026-11-07")}:2026-11-10`;
+    await writeBack(t, {
+      reminderKey,
+      status: "failed",
+      error: "connect ECONNREFUSED 172.21.0.3:1026",
+    });
+    const [row] = await reminders(t);
+    expect(row!.lastError).toBe("connect ECONNREFUSED [host]");
+  });
+
   test("failed twice counts both attempts", async () => {
     const { t, loan } = await circle();
     const reminderKey = `reminder:${await loan("2026-11-07")}:2026-11-10`;

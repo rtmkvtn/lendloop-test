@@ -74,7 +74,8 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_request", ["requestId"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
-    .index("by_kind_updatedAt", ["kind", "updatedAt"]),
+    .index("by_kind_updatedAt", ["kind", "updatedAt"])
+    .index("by_kind_status_updatedAt", ["kind", "status", "updatedAt"]),
 
   // One row per automation, so a dead n8n schedule is visible from Convex.
   automationState: defineTable({

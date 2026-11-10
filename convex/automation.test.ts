@@ -84,6 +84,19 @@ describe("POST /automation/errors (Error Workflow)", () => {
     expect(rows[0]!.lastError).toContain("status code 500");
   });
 
+  test("keeps internal hosts out of the stored error", async () => {
+    const t = newTest();
+    await postError(t, {
+      ...FAILURE,
+      error:
+        "The connection to http://convex-backend:3211/automation/reminders was refused: connect ECONNREFUSED 172.21.0.3:3211",
+    });
+    const [row] = await events(t);
+    expect(row!.lastError).toBe(
+      "The connection to [url] was refused: connect ECONNREFUSED [host]",
+    );
+  });
+
   test("drops an execution link that isn't http(s)", async () => {
     const t = newTest();
     await postError(t, { ...FAILURE, executionUrl: "javascript:alert(1)" });
@@ -559,6 +572,36 @@ describe("admin.automationHealth", () => {
     ]);
     expect(health.lastReminderRunAt).toBe(ranAt);
     expect(JSON.stringify(health)).not.toContain("@example.com");
+  });
+
+  test("a burst of workflow errors doesn't hide a failed email", async () => {
+    const { t, omar } = await circle();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("automationEvents", {
+        kind: "notification",
+        event: "request.created",
+        idempotencyKey: "notify:old:request.created",
+        status: "failed",
+        attempts: 5,
+        lastError: "n8n answered 503",
+        updatedAt: Date.now() - 60_000,
+      });
+      for (let i = 0; i < 150; i++) {
+        await ctx.db.insert("automationEvents", {
+          kind: "workflow_error",
+          event: "n8n.execution_failed",
+          idempotencyKey: `workflow_error:n8n:${i}`,
+          status: "failed",
+          attempts: 1,
+          lastError: "boom",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    const health = await omar.as.query(api.admin.automationHealth, {});
+    expect(health.events).toEqual([
+      expect.objectContaining({ kind: "notification", status: "failed" }),
+    ]);
   });
 
   test("is Admin only", async () => {

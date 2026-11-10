@@ -5,6 +5,7 @@ import type { NotificationEvent } from "./lib/automationFields";
 import { addDays, todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { internalMutation } from "./lib/functions";
+import { promoteByEmail } from "./lib/members";
 import { recipientOf } from "./lib/notifications";
 import { REMINDER_EVENT, reminderKeyOf } from "./lib/reminders";
 import type { Category, Condition } from "./lib/toolFields";
@@ -290,18 +291,12 @@ export const demo = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
-    const reviewer = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
+    const reviewer = await promoteByEmail(ctx, email);
     if (!reviewer) {
       fail(
         "NOT_FOUND",
         `No Member with email ${email}. Sign in to LendLoop once with that account, then run npm run demo again.`,
       );
-    }
-    if (reviewer.role !== "admin") {
-      await ctx.db.patch("users", reviewer._id, { role: "admin" });
     }
 
     const ownTools = await ctx.db

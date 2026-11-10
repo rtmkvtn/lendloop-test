@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+# The pinned dev-only values in .env.example (README, Environment variables).
+# Matched by exact value, so a real key pasted into the template still fails.
+[allowlist]
+description = "Dev-only placeholders committed on purpose"
+regexTarget = "match"
+regexes = [
+  '''CONVEX_INSTANCE_SECRET=8ce21c49939e71a7b8be27fa546f09fb6f207a6c5abfb51bb425b5216f22f03b''',
+  '''N8N_ENCRYPTION_KEY=63d5d4308730f32481b4df34181dea8b81ae07952ec7a1c5''',
+]

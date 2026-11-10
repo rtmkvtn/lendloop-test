@@ -187,6 +187,16 @@ describe("users.promote", () => {
     expect(await as.query(api.users.me, {})).toMatchObject({ role: "admin" });
   });
 
+  test("promotes the signed-in account even when an older row shares its email", async () => {
+    const t = newTest();
+    await seedViewer(t, { ...ANNA, subject: "user_anna_deleted" });
+    const { as } = await seedViewer(t, ANNA);
+
+    await t.mutation(internal.users.promote, { email: ANNA.email });
+
+    expect(await as.query(api.users.me, {})).toMatchObject({ role: "admin" });
+  });
+
   test("rejects an email that has not signed in yet with NOT_FOUND", async () => {
     const t = newTest();
     await expect(
