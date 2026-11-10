@@ -28,6 +28,7 @@ import type * as lib_toolFields from "../lib/toolFields.js";
 import type * as notifications from "../notifications.js";
 import type * as reminders from "../reminders.js";
 import type * as requests from "../requests.js";
+import type * as seed from "../seed.js";
 import type * as tools from "../tools.js";
 import type * as users from "../users.js";
 
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   reminders: typeof reminders;
   requests: typeof requests;
+  seed: typeof seed;
   tools: typeof tools;
   users: typeof users;
 }>;

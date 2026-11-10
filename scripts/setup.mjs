@@ -103,6 +103,17 @@ const push = await convex(["dev", "--once"]);
 if (!push.ok) die("Pushing Convex functions failed (see above).");
 console.log("✔ Convex functions pushed");
 
+const seed = await convex(["run", "seed:base"], {
+  timeoutMs: 60_000,
+  quiet: true,
+});
+if (!seed.ok) die(`Seeding demo data failed:\n${seed.output.trim()}`);
+console.log(
+  JSON.parse(seed.stdout).seeded
+    ? "✔ Demo data seeded"
+    : "✔ Demo data skipped (Tools already exist; npm run reset starts over)",
+);
+
 for (const [name, url] of [
   ["n8n", "http://127.0.0.1:5678/healthz"],
   ["Mailpit", "http://127.0.0.1:8025/readyz"],
