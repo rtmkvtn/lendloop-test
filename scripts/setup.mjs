@@ -78,6 +78,18 @@ if (!auth.ok) {
 const functionEnv = {
   CLERK_FRONTEND_API_URL: process.env.CLERK_FRONTEND_API_URL.trim(),
   APP_TIMEZONE: process.env.APP_TIMEZONE?.trim() || "UTC",
+  APP_URL: process.env.APP_URL?.trim() || "http://localhost:3000",
+  ...Object.fromEntries(
+    [
+      "CONVEX_TO_N8N_SECRET",
+      "N8N_TO_CONVEX_SECRET",
+      "N8N_NOTIFY_WEBHOOK_URL",
+    ].map((name) => {
+      const value = process.env[name]?.trim();
+      if (!value) die(`${name} is missing from .env (see .env.example).`);
+      return [name, value];
+    }),
+  ),
 };
 for (const [name, value] of Object.entries(functionEnv)) {
   const set = await convex(["env", "set", name, value], { quiet: true });

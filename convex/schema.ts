@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { vAutomationKind, vAutomationStatus } from "./lib/automationFields";
 import { vRequestStatus } from "./lib/requestFields";
 import { vCategory, vCondition } from "./lib/toolFields";
 
@@ -9,6 +10,7 @@ export default defineSchema({
   users: defineTable({
     tokenIdentifier: v.string(),
     name: v.string(),
+    firstName: v.string(),
     // Stored only because Notifications and Reminders are addressed to it.
     email: v.string(),
     role: vRole,
@@ -48,6 +50,23 @@ export default defineSchema({
     .index("by_borrower", ["borrowerId"])
     .index("by_lender_status", ["lenderId", "status"])
     .index("by_status_endDate", ["status", "endDate"]),
+
+  automationEvents: defineTable({
+    requestId: v.optional(v.id("requests")),
+    kind: vAutomationKind,
+    event: v.string(),
+    idempotencyKey: v.string(),
+    recipientId: v.optional(v.id("users")),
+    status: vAutomationStatus,
+    attempts: v.number(),
+    // Bumped by an Admin retry so n8n's dedupe (keyed by deliveryId) lets it through.
+    retryGeneration: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+    demo: v.optional(v.boolean()),
+  })
+    .index("by_idempotency_key", ["idempotencyKey"])
+    .index("by_request", ["requestId"]),
 
   // Append-only: rows are inserted through lib/audit.ts and never patched or deleted.
   auditLog: defineTable({

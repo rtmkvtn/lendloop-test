@@ -1,3 +1,5 @@
 convex/_generated
 package-lock.json
 .next
+# Not JSON until n8n/render.cjs fills the numeric placeholders.
+n8n/credentials.template.json

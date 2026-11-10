@@ -1,6 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { appendAudit } from "./audit";
+import type { NotificationEvent } from "./automationFields";
+import { queueNotification } from "./notifications";
 import { rangesOverlap } from "./dates";
 import { fail } from "./errors";
 import type { RequestAction, RequestStatus } from "./requestFields";
@@ -32,7 +34,8 @@ const TIMESTAMP_FIELD = {
   returned: "returnedAt",
 } as const;
 
-// The one place a Request changes status. Later tickets queue the Notification here too.
+// The one place a Request changes status: the audit row and the Notification
+// commit in the same transaction as the patch.
 export async function transitionRequest(
   ctx: MutationCtx,
   request: Doc<"requests">,
@@ -44,11 +47,15 @@ export async function transitionRequest(
     status: to,
     [TIMESTAMP_FIELD[to]]: Date.now(),
   });
+  const event: NotificationEvent = by.auto
+    ? "request.auto_declined"
+    : `request.${to}`;
   await appendAudit(ctx, {
     actorId: by.actorId,
-    action: by.auto ? "request.auto_declined" : `request.${to}`,
+    action: event,
     target: request._id,
   });
+  await queueNotification(ctx, request, event);
 }
 
 export async function loansOf(ctx: QueryCtx, toolId: Id<"tools">) {

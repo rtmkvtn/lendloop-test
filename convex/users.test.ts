@@ -56,6 +56,31 @@ describe("users.ensureMe", () => {
     });
   });
 
+  test.each([
+    ["the given_name claim", { givenName: "Annie" }, "Annie"],
+    ["the first word of the name", {}, "Anna"],
+    ["the part of the email before the @", { name: undefined }, "anna"],
+  ])("stores a first name from %s", async (_label, claims, firstName) => {
+    const t = newTest();
+    await t
+      .withIdentity({ ...annaIdentity, ...claims })
+      .mutation(api.users.ensureMe, {});
+
+    const rows = await allUsers(t);
+    expect(rows[0]).toMatchObject({ firstName });
+  });
+
+  test("refreshes the first name on later sign-ins", async () => {
+    const t = newTest();
+    await t.withIdentity(annaIdentity).mutation(api.users.ensureMe, {});
+    await t
+      .withIdentity({ ...annaIdentity, givenName: "Annie" })
+      .mutation(api.users.ensureMe, {});
+
+    const rows = await allUsers(t);
+    expect(rows[0]).toMatchObject({ firstName: "Annie" });
+  });
+
   test("never resets role or Trusted Lender on later sign-ins", async () => {
     const t = newTest();
     await seedViewer(t, { ...ANNA, role: "admin", trustedLender: true });

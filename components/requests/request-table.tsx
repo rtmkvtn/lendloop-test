@@ -2,6 +2,7 @@
 
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { TrustedBadge } from "@/components/tools/tool-labels";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,8 @@ import {
 } from "@/components/ui/table";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatRange } from "@/lib/dates";
+import { formatRange, relativeDay } from "@/lib/dates";
+import { cn } from "@/lib/utils";
 import { RequestActions, RequestStatusBadge } from "./request-actions";
 import { RequestDetailDrawer } from "./request-detail-drawer";
 
@@ -30,7 +32,11 @@ export function RequestTable({
   rows: RequestRow[];
   perspective: "borrower" | "lender";
 }) {
-  const [openId, setOpenId] = useState<Id<"requests"> | null>(null);
+  // Notification emails deep-link here with ?request=<id>.
+  const linkedId = useSearchParams().get("request");
+  const [openId, setOpenId] = useState<Id<"requests"> | null>(
+    () => rows.find((row) => row._id === linkedId)?._id ?? null,
+  );
 
   return (
     <>
@@ -68,6 +74,18 @@ export function RequestTable({
                 </button>
                 {row.tool.removed && (
                   <span className="text-muted-foreground"> (removed)</span>
+                )}
+                {row.activity && (
+                  <div
+                    className={cn(
+                      "text-xs",
+                      row.activity.failed
+                        ? "text-destructive"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {row.activity.label} {relativeDay(row.activity.at)}
+                  </div>
                 )}
               </TableCell>
               <TableCell>

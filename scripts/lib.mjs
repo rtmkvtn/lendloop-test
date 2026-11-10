@@ -16,17 +16,21 @@ export function convex(args, { timeoutMs, quiet = false } = {}) {
       shell: process.platform === "win32",
     });
     let output = "";
-    child.stdout?.on("data", (d) => (output += d));
+    let stdout = "";
+    child.stdout?.on("data", (d) => {
+      output += d;
+      stdout += d;
+    });
     child.stderr?.on("data", (d) => (output += d));
     const timer = timeoutMs
       ? setTimeout(() => {
           child.kill();
-          resolve({ ok: false, timedOut: true, output });
+          resolve({ ok: false, timedOut: true, output, stdout });
         }, timeoutMs)
       : undefined;
     child.on("exit", (code) => {
       clearTimeout(timer);
-      resolve({ ok: code === 0, timedOut: false, output });
+      resolve({ ok: code === 0, timedOut: false, output, stdout });
     });
   });
 }

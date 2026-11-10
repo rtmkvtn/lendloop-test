@@ -495,6 +495,11 @@ describe("request views", () => {
         lender: { name: ANNA.name, trusted: true },
         borrower: { name: BEN.name },
         actions: ["cancel"],
+        activity: {
+          label: "Request email to lender queued",
+          at: expect.any(Number),
+          failed: false,
+        },
       },
     ]);
     expect(await c.cara.as.query(api.requests.listMine, {})).toEqual([]);
@@ -597,8 +602,10 @@ describe("request views", () => {
       viewerRole: "lender",
       actions: ["markReturned"],
       history: [
-        { label: "Requested", at: expect.any(Number) },
-        { label: "Approved", at: expect.any(Number) },
+        { label: "Requested", at: expect.any(Number), failed: false },
+        { label: "Request email to lender queued", at: expect.any(Number) },
+        { label: "Approved", at: expect.any(Number), failed: false },
+        { label: "Approval email to borrower queued", at: expect.any(Number) },
       ],
     });
     expect(

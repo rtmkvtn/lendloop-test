@@ -18,6 +18,11 @@ export const ensureMe = signedInMutation({
     if (!identity.email) fail("INVALID", MISSING_EMAIL);
     const email = normaliseEmail(identity.email);
     const name = identity.name?.trim() || identity.givenName?.trim() || email;
+    const firstName =
+      identity.givenName?.trim() ||
+      identity.name?.trim().split(/\s+/)[0] ||
+      email.split("@")[0] ||
+      email;
 
     const existing = await ctx.db
       .query("users")
@@ -27,8 +32,12 @@ export const ensureMe = signedInMutation({
       .unique();
 
     if (existing) {
-      if (existing.name !== name || existing.email !== email) {
-        await ctx.db.patch("users", existing._id, { name, email });
+      if (
+        existing.name !== name ||
+        existing.firstName !== firstName ||
+        existing.email !== email
+      ) {
+        await ctx.db.patch("users", existing._id, { name, firstName, email });
       }
       return existing._id;
     }
@@ -36,6 +45,7 @@ export const ensureMe = signedInMutation({
     return await ctx.db.insert("users", {
       tokenIdentifier: identity.tokenIdentifier,
       name,
+      firstName,
       email,
       role: "user",
       trustedLender: false,

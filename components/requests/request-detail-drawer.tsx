@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatMoment, formatRange } from "@/lib/dates";
 import { errorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { RequestActions, RequestStatusBadge } from "./request-actions";
 
 export function RequestDetailDrawer({
@@ -94,8 +95,15 @@ function RequestDetail({ requestId }: { requestId: Id<"requests"> }) {
           <ol className="grid gap-3 border-l pl-4">
             {[...r.history].reverse().map((entry, i) => (
               <li key={`${entry.at}-${i}`} className="relative">
-                <span className="absolute top-1.5 -left-[1.3rem] size-2 rounded-full bg-muted-foreground" />
-                <div>{entry.label}</div>
+                <span
+                  className={cn(
+                    "absolute top-1.5 -left-[1.3rem] size-2 rounded-full",
+                    entry.failed ? "bg-destructive" : "bg-muted-foreground",
+                  )}
+                />
+                <div className={cn(entry.failed && "text-destructive")}>
+                  {entry.label}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {formatMoment(entry.at)}
                 </div>
