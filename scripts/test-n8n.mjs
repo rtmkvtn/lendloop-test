@@ -319,3 +319,73 @@ describe("Reminders through the real stack", () => {
     });
   }
 });
+
+describe("Admin moderation through the real stack", () => {
+  const omar = identity("omar", "Omar");
+  const lender = identity("lena", "Lena");
+  const borrower = identity("bo", "Bo");
+  const reason = `Battery recall ${RUN}`;
+  let toolId;
+  let pendingId;
+
+  const mailText = async (id) =>
+    (await (await fetch(`${MAILPIT}/api/v1/message/${id}`)).json()).Text;
+
+  before(async () => {
+    for (const who of [omar, lender, borrower]) {
+      await call("users:ensureMe", {}, who);
+    }
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+    toolId = await call(
+      "tools:create",
+      {
+        name: `Test sander ${RUN}`,
+        category: "power_tools",
+        condition: "fair",
+        description: "Created by npm run test:n8n.",
+      },
+      lender,
+    );
+    pendingId = await call(
+      "requests:create",
+      { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+      borrower,
+    );
+    await call("admin:removeTool", { toolId, reason }, omar);
+  });
+
+  test("the Lender gets a tool.removed email with the reason, and the event ends sent", async () => {
+    const [message] = await until(async () => {
+      const mail = (await mailCount(lender.email)).messages.filter((m) =>
+        m.Subject.startsWith("Your Test sander"),
+      );
+      return mail.length >= 1 && mail;
+    }, "the removal email to the Lender");
+    assert.equal(
+      message.Subject,
+      `Your Test sander ${RUN} was removed from LendLoop`,
+    );
+    assert.match(await mailText(message.ID), new RegExp(reason));
+    const row = await until(async () => {
+      const r = await eventRow(`notify:${toolId}:tool.removed`);
+      return r?.status === "sent" && r;
+    }, "the tool.removed event to be sent");
+    assert.equal(row.attempts, 1);
+  });
+
+  test("the pending Borrower gets the auto-decline email, and the event ends sent", async () => {
+    const [message] = await until(async () => {
+      const mail = (await mailCount(borrower.email)).messages;
+      return mail.length >= 1 && mail;
+    }, "the auto-decline email to the Borrower");
+    assert.equal(
+      message.Subject,
+      `Your request for Test sander ${RUN} was declined`,
+    );
+    assert.match(await mailText(message.ID), /taken off the board/);
+    await until(async () => {
+      const r = await eventRow(`notify:${pendingId}:request.auto_declined`);
+      return r?.status === "sent";
+    }, "the auto-decline event to be sent");
+  });
+});

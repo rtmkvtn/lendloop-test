@@ -21,24 +21,45 @@ export const loadDelivery = internalQuery({
     if (!event || event.kind !== "notification" || event.status !== "pending") {
       return null;
     }
-    const request = event.requestId
-      ? await ctx.db.get("requests", event.requestId)
-      : null;
     const recipient = event.recipientId
       ? await ctx.db.get("users", event.recipientId)
       : null;
+    if (!recipient) return { missing: true as const };
+    const common = {
+      deliveryId: deliveryIdOf(event),
+      event: event.event,
+      recipient: { email: recipient.email, firstName: recipient.firstName },
+    };
+
+    if (event.toolId) {
+      const tool = await ctx.db.get("tools", event.toolId);
+      if (!tool) return { missing: true as const };
+      return {
+        missing: false as const,
+        payload: {
+          ...common,
+          tool: { name: tool.name },
+          reason: tool.removalReason ?? "",
+          link: `${appUrl()}/listings`,
+        },
+      };
+    }
+
+    const request = event.requestId
+      ? await ctx.db.get("requests", event.requestId)
+      : null;
     const tool = request ? await ctx.db.get("tools", request.toolId) : null;
-    if (!request || !recipient || !tool) return { missing: true as const };
+    if (!request || !tool) return { missing: true as const };
 
     const page = recipient._id === request.lenderId ? "incoming" : "requests";
     return {
       missing: false as const,
-      deliveryId: deliveryIdOf(event),
-      event: event.event,
-      recipient: { email: recipient.email, firstName: recipient.firstName },
-      tool: { name: tool.name },
-      dates: { start: request.startDate, end: request.endDate },
-      link: `${appUrl()}/${page}?request=${request._id}`,
+      payload: {
+        ...common,
+        tool: { name: tool.name },
+        dates: { start: request.startDate, end: request.endDate },
+        link: `${appUrl()}/${page}?request=${request._id}`,
+      },
     };
   },
 });
@@ -68,7 +89,7 @@ export const deliver = internalAction({
     };
 
     if (delivery.missing) {
-      return await record("failed", "The Request or its recipient is gone");
+      return await record("failed", "The Request, Tool or recipient is gone");
     }
     const url = n8nNotifyWebhookUrl();
     const secret = convexToN8nSecret();
@@ -79,15 +100,12 @@ export const deliver = internalAction({
       );
     }
 
+    const { deliveryId, ...rest } = delivery.payload;
     const body = JSON.stringify({
       eventId,
-      deliveryId: delivery.deliveryId,
+      deliveryId,
       sentAt: new Date().toISOString(),
-      event: delivery.event,
-      recipient: delivery.recipient,
-      tool: delivery.tool,
-      dates: delivery.dates,
-      link: delivery.link,
+      ...rest,
     });
     const headers = {
       "Content-Type": "application/json",

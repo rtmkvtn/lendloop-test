@@ -34,6 +34,7 @@ export const CONDITION_LABELS: Record<Condition, string> = {
 
 export const NAME_MAX = 80;
 export const DESCRIPTION_MAX = 500;
+export const REASON_MAX = 500;
 
 export const vCategory = v.union(...CATEGORIES.map((c) => v.literal(c)));
 export const vCondition = v.union(...CONDITIONS.map((c) => v.literal(c)));

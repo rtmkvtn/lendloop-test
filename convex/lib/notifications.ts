@@ -1,7 +1,7 @@
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { NotificationEvent } from "./automationFields";
+import { type NotificationEvent, TOOL_REMOVED_EVENT } from "./automationFields";
 import { REMINDER_EVENT } from "./reminders";
 
 const TO_LENDER: readonly NotificationEvent[] = [
@@ -27,7 +27,37 @@ export async function queueNotification(
   request: Pick<Doc<"requests">, "_id" | "lenderId" | "borrowerId">,
   event: NotificationEvent,
 ) {
-  const idempotencyKey = `notify:${request._id}:${event}`;
+  return await enqueue(ctx, {
+    idempotencyKey: `notify:${request._id}:${event}`,
+    requestId: request._id,
+    event,
+    recipientId: recipientOf(request, event),
+  });
+}
+
+export async function queueToolRemovedNotification(
+  ctx: MutationCtx,
+  tool: Pick<Doc<"tools">, "_id" | "ownerId">,
+) {
+  return await enqueue(ctx, {
+    idempotencyKey: `notify:${tool._id}:${TOOL_REMOVED_EVENT}`,
+    toolId: tool._id,
+    event: TOOL_REMOVED_EVENT,
+    recipientId: tool.ownerId,
+  });
+}
+
+async function enqueue(
+  ctx: MutationCtx,
+  row: {
+    idempotencyKey: string;
+    requestId?: Id<"requests">;
+    toolId?: Id<"tools">;
+    event: string;
+    recipientId: Id<"users">;
+  },
+) {
+  const { idempotencyKey } = row;
   const existing = await ctx.db
     .query("automationEvents")
     .withIndex("by_idempotency_key", (q) =>
@@ -37,11 +67,8 @@ export async function queueNotification(
   if (existing) return existing._id;
 
   const eventId = await ctx.db.insert("automationEvents", {
-    requestId: request._id,
+    ...row,
     kind: "notification",
-    event,
-    idempotencyKey,
-    recipientId: recipientOf(request, event),
     status: "pending",
     attempts: 0,
     updatedAt: Date.now(),
@@ -57,6 +84,7 @@ const SUBJECT: Record<string, string> = {
   "request.declined": "Decline email to borrower",
   "request.auto_declined": "Decline email to borrower",
   "request.returned": "Return email to borrower",
+  [TOOL_REMOVED_EVENT]: "Removal email to lender",
   [REMINDER_EVENT]: "Reminder",
 };
 

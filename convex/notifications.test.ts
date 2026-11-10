@@ -5,6 +5,7 @@ import { signedHeaders, verifySignature } from "./lib/signature";
 import {
   ANNA,
   BEN,
+  OMAR,
   newTest,
   seedViewer,
   type TestConvex,
@@ -209,6 +210,38 @@ describe("delivery to n8n", () => {
     expect(approval).toMatchObject({
       recipient: { email: "ben@example.com", firstName: "Ben" },
       link: `http://localhost:3000/requests?request=${requestId}`,
+    });
+  });
+
+  test("an Admin removal sends the Lender tool.removed with the reason and a link to My listings", async () => {
+    const { t, toolId, requestId } = await circle();
+    const omar = await seedViewer(t, OMAR);
+    await omar.as.mutation(api.admin.removeTool, {
+      toolId,
+      reason: "Battery recall",
+    });
+    await runScheduled(t);
+
+    const event = await eventFor(t, `notify:${toolId}:tool.removed`);
+    expect(calls.map(bodyOf)).toContainEqual({
+      eventId: event._id,
+      deliveryId: `${event._id}#0`,
+      sentAt: expect.stringMatching(/^2026-11-10T12:00:00/),
+      event: "tool.removed",
+      recipient: { email: "anna@example.com", firstName: "Anna" },
+      tool: { name: "Cordless drill" },
+      reason: "Battery recall",
+      link: "http://localhost:3000/listings",
+    });
+    expect(calls.map(bodyOf)).toContainEqual(
+      expect.objectContaining({
+        event: "request.auto_declined",
+        recipient: { email: "ben@example.com", firstName: "Ben" },
+        link: `http://localhost:3000/requests?request=${requestId}`,
+      }),
+    );
+    expect(await eventFor(t, `notify:${toolId}:tool.removed`)).toMatchObject({
+      status: "accepted",
     });
   });
 

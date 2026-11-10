@@ -53,6 +53,8 @@ export default defineSchema({
 
   automationEvents: defineTable({
     requestId: v.optional(v.id("requests")),
+    // Set only for Notifications about a Tool itself (tool.removed).
+    toolId: v.optional(v.id("tools")),
     kind: vAutomationKind,
     event: v.string(),
     idempotencyKey: v.string(),
