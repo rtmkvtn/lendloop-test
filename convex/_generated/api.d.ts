@@ -9,6 +9,8 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as automation from "../automation.js";
+import type * as crons from "../crons.js";
 import type * as devSupport from "../devSupport.js";
 import type * as http from "../http.js";
 import type * as lib_audit from "../lib/audit.js";
@@ -26,6 +28,7 @@ import type * as lib_requestLifecycle from "../lib/requestLifecycle.js";
 import type * as lib_requestRows from "../lib/requestRows.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_toolFields from "../lib/toolFields.js";
+import type * as lib_workflowErrors from "../lib/workflowErrors.js";
 import type * as notifications from "../notifications.js";
 import type * as reminders from "../reminders.js";
 import type * as requests from "../requests.js";
@@ -41,6 +44,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  automation: typeof automation;
+  crons: typeof crons;
   devSupport: typeof devSupport;
   http: typeof http;
   "lib/audit": typeof lib_audit;
@@ -58,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "lib/requestRows": typeof lib_requestRows;
   "lib/signature": typeof lib_signature;
   "lib/toolFields": typeof lib_toolFields;
+  "lib/workflowErrors": typeof lib_workflowErrors;
   notifications: typeof notifications;
   reminders: typeof reminders;
   requests: typeof requests;

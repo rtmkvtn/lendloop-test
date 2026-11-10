@@ -64,11 +64,17 @@ export default defineSchema({
     // Bumped by an Admin retry so n8n's dedupe (keyed by deliveryId) lets it through.
     retryGeneration: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    // Set only on workflow_error rows reported by the n8n Error Workflow.
+    workflowName: v.optional(v.string()),
+    failedNode: v.optional(v.string()),
+    executionUrl: v.optional(v.string()),
     updatedAt: v.number(),
     demo: v.optional(v.boolean()),
   })
     .index("by_idempotency_key", ["idempotencyKey"])
-    .index("by_request", ["requestId"]),
+    .index("by_request", ["requestId"])
+    .index("by_status_updatedAt", ["status", "updatedAt"])
+    .index("by_kind_updatedAt", ["kind", "updatedAt"]),
 
   // One row per automation, so a dead n8n schedule is visible from Convex.
   automationState: defineTable({
@@ -80,7 +86,12 @@ export default defineSchema({
   auditLog: defineTable({
     actorId: v.id("users"),
     action: v.string(),
-    target: v.union(v.id("requests"), v.id("tools"), v.id("users")),
+    target: v.union(
+      v.id("requests"),
+      v.id("tools"),
+      v.id("users"),
+      v.id("automationEvents"),
+    ),
     at: v.number(),
     demo: v.optional(v.boolean()),
   }).index("by_target", ["target"]),

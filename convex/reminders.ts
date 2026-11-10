@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { sanitiseError } from "./lib/automationFields";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { convexToN8nSecret, n8nRemindersWebhookUrl } from "./lib/env";
@@ -117,18 +118,16 @@ export const recordWriteBack = internalMutation({
   },
 });
 
-export const triggerRun = internalAction({
-  args: {},
-  handler: async (): Promise<void> => {
-    const url = n8nRemindersWebhookUrl();
-    const secret = convexToN8nSecret();
-    if (!url || !secret) {
-      throw new Error(
-        "Reminders are not configured: set N8N_REMINDERS_WEBHOOK_URL and CONVEX_TO_N8N_SECRET",
-      );
-    }
-    const body = JSON.stringify({ requestedAt: new Date().toISOString() });
-    const res = await fetch(url, {
+async function startRun(): Promise<string | null> {
+  const url = n8nRemindersWebhookUrl();
+  const secret = convexToN8nSecret();
+  if (!url || !secret) {
+    return "Reminders are not configured: set N8N_REMINDERS_WEBHOOK_URL and CONVEX_TO_N8N_SECRET";
+  }
+  const body = JSON.stringify({ requestedAt: new Date().toISOString() });
+  let res: Response;
+  try {
+    res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -141,6 +140,22 @@ export const triggerRun = internalAction({
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) throw new Error(`n8n answered ${res.status}`);
+  } catch (e) {
+    const timedOut =
+      e instanceof Error && ["TimeoutError", "AbortError"].includes(e.name);
+    return timedOut ? "n8n did not answer within 10 s" : "Could not reach n8n";
+  }
+  return res.ok ? null : `n8n answered ${res.status}`;
+}
+
+export const triggerRun = internalAction({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const error = await startRun();
+    if (error) {
+      await ctx.runMutation(internal.automation.recordTriggerFailure, {
+        error,
+      });
+    }
   },
 });

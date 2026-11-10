@@ -389,3 +389,128 @@ describe("Admin moderation through the real stack", () => {
     }, "the auto-decline event to be sent");
   });
 });
+
+describe("Failure visibility through the real stack", () => {
+  const omar = identity("omar", "Omar");
+  const alerts = process.env.ADMIN_ALERT_EMAIL || "alerts@lendloop.local";
+
+  const overdueLoanFor = async (borrower, toolName) => {
+    await call("users:ensureMe", {}, borrower);
+    const toolId = await call(
+      "tools:create",
+      {
+        name: toolName,
+        category: "garden",
+        condition: "good",
+        description: "Created by npm run test:n8n.",
+      },
+      anna,
+    );
+    const loanId = await call(
+      "requests:create",
+      { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+      borrower,
+    );
+    await call("requests:approve", { requestId: loanId }, anna);
+    await convexRun([
+      "devSupport:backdateLoan",
+      JSON.stringify({
+        requestId: loanId,
+        startDate: addDaysUtc(-5),
+        endDate: addDaysUtc(-2),
+      }),
+    ]);
+    return loanId;
+  };
+
+  const workflowErrors = () =>
+    inlineQuery(
+      `await ctx.db.query("automationEvents").withIndex("by_kind_updatedAt", (q) => q.eq("kind", "workflow_error")).collect()`,
+    );
+
+  before(async () => {
+    await call("users:ensureMe", {}, omar);
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+  });
+
+  test("with SMTP broken, a Reminder is recorded failed and no email is sent", async () => {
+    const { setSmtpPort, DEAD_PORT } = await import("./demo-smtp.mjs");
+    const flo = identity("flo", "Flo");
+    const loanId = await overdueLoanFor(flo, `Test rake ${RUN}`);
+    setSmtpPort(DEAD_PORT);
+    try {
+      await call("admin:runRemindersNow", {}, omar);
+      const [row] = await until(
+        async () => {
+          const rows = await inlineQuery(
+            `(await ctx.db.query("automationEvents").withIndex("by_request", (q) => q.eq("requestId", ${JSON.stringify(loanId)})).collect()).filter((e) => e.kind === "reminder")`,
+          );
+          return rows[0]?.status === "failed" && rows;
+        },
+        "the Reminder to be recorded failed",
+        60_000,
+      );
+      assert.ok(row.lastError);
+      assert.doesNotMatch(row.lastError, /@/);
+      const reminders = (await mailCount(flo.email)).messages.filter((m) =>
+        m.Subject.startsWith("Reminder: "),
+      );
+      assert.equal(reminders.length, 0);
+    } finally {
+      setSmtpPort("1025");
+    }
+  });
+
+  // Forced by giving Convex the wrong n8n → Convex secret: the run's signed
+  // GET gets 401, the run fails, and the Error Workflow fires.
+  test("a failed run emails the alert and records a workflow_error once the secret is back", async () => {
+    const restore = () =>
+      convex(["env", "set", "N8N_TO_CONVEX_SECRET", N2C], { quiet: true });
+    const subject = "[LendLoop] n8n run failed: LendLoop: overdue reminders";
+    const alertsBefore = (await mailCount(alerts)).messages.filter(
+      (m) => m.Subject === subject,
+    ).length;
+    const errorsBefore = new Set((await workflowErrors()).map((e) => e._id));
+
+    const broke = await convex(
+      ["env", "set", "N8N_TO_CONVEX_SECRET", `wrong-${RUN}`],
+      { quiet: true },
+    );
+    assert.ok(broke.ok, broke.output);
+    try {
+      await call("admin:runRemindersNow", {}, omar);
+      const alert = await until(
+        async () => {
+          const mine = (await mailCount(alerts)).messages.filter(
+            (m) => m.Subject === subject,
+          );
+          return mine.length > alertsBefore && mine[0];
+        },
+        "the alert email",
+        90_000,
+      );
+      await restore();
+      const text = (
+        await (await fetch(`${MAILPIT}/api/v1/message/${alert.ID}`)).json()
+      ).Text;
+      assert.match(text, /Failed node: Get Overdue Loans/);
+      assert.match(text, /Execution: http:\/\/localhost:5678\/workflow\//);
+      assert.doesNotMatch(text, /@example\.com/);
+    } finally {
+      await restore();
+    }
+
+    const row = await until(
+      async () =>
+        (await workflowErrors()).find(
+          (e) => !errorsBefore.has(e._id) && e.event === "n8n.execution_failed",
+        ),
+      "the workflow_error row",
+      60_000,
+    );
+    assert.equal(row.workflowName, "LendLoop: overdue reminders");
+    assert.equal(row.failedNode, "Get Overdue Loans");
+    assert.match(row.idempotencyKey, /^workflow_error:n8n:\d+$/);
+    assert.match(row.executionUrl, /^http:\/\/localhost:5678\/workflow\//);
+  });
+});

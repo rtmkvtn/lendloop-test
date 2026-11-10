@@ -339,6 +339,22 @@ describe("RBAC", () => {
     listLenders: (as) => as.query(api.admin.listLenders, {}),
     listListings: (as) => as.query(api.admin.listListings, {}),
     runRemindersNow: (as) => as.mutation(api.admin.runRemindersNow, {}),
+    retryEvent: async (as, c) => {
+      const eventId = await c.t.run((ctx) =>
+        ctx.db.insert("automationEvents", {
+          toolId: c.toolId,
+          kind: "notification",
+          event: "tool.removed",
+          idempotencyKey: `notify:${c.toolId}:tool.removed`,
+          recipientId: c.anna.userId,
+          status: "failed",
+          attempts: 5,
+          updatedAt: Date.now(),
+        }),
+      );
+      return await as.mutation(api.admin.retryEvent, { eventId });
+    },
+    automationHealth: (as) => as.query(api.admin.automationHealth, {}),
   };
 
   test("covers every public Admin function", () => {

@@ -74,6 +74,8 @@ services:
       N8N_TO_CONVEX_SECRET: ${N8N_TO_CONVEX_SECRET:?set N8N_TO_CONVEX_SECRET in .env}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
+      # Rendered into the Error Workflow at start; the alert lands in Mailpit.
+      ADMIN_ALERT_EMAIL: ${ADMIN_ALERT_EMAIL:-alerts@lendloop.local}
     depends_on:
       n8n-postgres: { condition: service_healthy }
       mailpit: { condition: service_healthy }

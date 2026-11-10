@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Doc } from "../_generated/dataModel";
 
 export const AUTOMATION_KINDS = [
   "notification",
@@ -35,6 +36,20 @@ export const vAutomationKind = v.union(
 export const vAutomationStatus = v.union(
   ...AUTOMATION_STATUSES.map((s) => v.literal(s)),
 );
+
+export const STUCK_AFTER_MS = 30 * 60_000;
+
+// Reminders have no Convex-side delivery, so a retried one waits as pending
+// for n8n's write-back; Notifications wait as accepted.
+export function isStuck(
+  event: Pick<Doc<"automationEvents">, "kind" | "status" | "updatedAt">,
+  now: number = Date.now(),
+) {
+  const waiting =
+    event.status === "accepted" ||
+    (event.kind === "reminder" && event.status === "pending");
+  return waiting && now - event.updatedAt > STUCK_AFTER_MS;
+}
 
 const EMAIL_RE = /[^\s@<>"']+@[^\s@<>"']+/g;
 const MAX_ERROR = 200;

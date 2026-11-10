@@ -14,6 +14,16 @@ export function todayInAppTimeZone(now: number = Date.now()): string {
   }).format(new Date(now));
 }
 
+export function hourInAppTimeZone(now: number = Date.now()): number {
+  return Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: appTimeZone(),
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date(now)),
+  );
+}
+
 function toUtcMs(date: string) {
   const [y, m, d] = date.split("-").map(Number) as [number, number, number];
   return Date.UTC(y, m - 1, d);

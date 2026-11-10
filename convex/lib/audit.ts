@@ -7,7 +7,7 @@ export async function appendAudit(
   entry: {
     actorId: Id<"users">;
     action: string;
-    target: Id<"requests"> | Id<"tools"> | Id<"users">;
+    target: Id<"requests"> | Id<"tools"> | Id<"users"> | Id<"automationEvents">;
   },
 ) {
   await ctx.db.insert("auditLog", { ...entry, at: Date.now() });

@@ -88,8 +88,12 @@ const SUBJECT: Record<string, string> = {
   [REMINDER_EVENT]: "Reminder",
 };
 
+export function subjectOf(event: Pick<Doc<"automationEvents">, "event">) {
+  return SUBJECT[event.event] ?? "Email";
+}
+
 export function activityOf(event: Doc<"automationEvents">) {
-  const subject = SUBJECT[event.event] ?? "Email";
+  const subject = subjectOf(event);
   const retrying = event.status === "pending" && event.attempts > 0;
   const phrase = retrying
     ? "failed, retrying"

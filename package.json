@@ -21,6 +21,8 @@
     "test:n8n": "node --test scripts/test-n8n.mjs",
     "test:demo": "node --test scripts/test-demo.mjs",
     "n8n:export": "node scripts/n8n-export.mjs",
+    "demo:break-smtp": "node scripts/demo-smtp.mjs break",
+    "demo:fix-smtp": "node scripts/demo-smtp.mjs fix",
     "prepare": "husky"
   },
   "dependencies": {

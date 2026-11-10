@@ -3,7 +3,8 @@
   "name": "LendLoop: overdue reminders",
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "llErrorWf0000001"
   },
   "nodes": [
     {
