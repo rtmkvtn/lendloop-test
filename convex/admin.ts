@@ -1,12 +1,14 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { appendAudit } from "./lib/audit";
+import { isStuck, STUCK_AFTER_MS } from "./lib/automationFields";
 import { availabilityOf } from "./lib/availability";
 import { todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { adminMutation, adminQuery } from "./lib/functions";
 import { displayName } from "./lib/members";
-import { queueToolRemovedNotification } from "./lib/notifications";
+import { queueToolRemovedNotification, subjectOf } from "./lib/notifications";
+import { lastReminderRunAt } from "./lib/reminders";
 import { pendingRequestsOf, transitionRequest } from "./lib/requestLifecycle";
 import { requestRow } from "./lib/requestRows";
 import { REASON_MAX } from "./lib/toolFields";
@@ -133,6 +135,134 @@ export const listListings = adminQuery({
         };
       }),
     );
+  },
+});
+
+// Reuses the event's row and idempotency key. Bumping retryGeneration changes
+// the deliveryId, which is what n8n dedupes on, so the retry isn't swallowed.
+export const retryEvent = adminMutation({
+  args: { eventId: v.id("automationEvents") },
+  handler: async (ctx, { eventId }) => {
+    const event = await ctx.db.get("automationEvents", eventId);
+    if (!event) fail("NOT_FOUND", "That event doesn't exist.");
+    if (event.kind === "workflow_error") {
+      fail("INVALID", "Workflow errors can't be retried; fix the cause.");
+    }
+    if (event.status !== "failed" && !isStuck(event)) {
+      fail("CONFLICT", "Only failed or stuck events can be retried.");
+    }
+
+    const common = {
+      status: "pending" as const,
+      retryGeneration: (event.retryGeneration ?? 0) + 1,
+      lastError: undefined,
+      updatedAt: Date.now(),
+    };
+    if (event.kind === "reminder") {
+      const loan = event.requestId
+        ? await ctx.db.get("requests", event.requestId)
+        : null;
+      if (
+        !loan ||
+        loan.status !== "approved" ||
+        loan.endDate >= todayInAppTimeZone()
+      ) {
+        fail("CONFLICT", "That Loan is no longer Overdue.");
+      }
+      await ctx.db.patch("automationEvents", eventId, common);
+      await ctx.scheduler.runAfter(0, internal.reminders.triggerRun, {});
+    } else {
+      await ctx.db.patch("automationEvents", eventId, {
+        ...common,
+        attempts: 0,
+      });
+      await ctx.scheduler.runAfter(0, internal.notifications.deliver, {
+        eventId,
+      });
+    }
+    await appendAudit(ctx, {
+      actorId: ctx.me._id,
+      action: "automation.retried",
+      target: eventId,
+    });
+  },
+});
+
+const HEALTH_LIMIT = 50;
+const WORKFLOW_ERROR_LIMIT = 20;
+
+export const automationHealth = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const cutoff = now - STUCK_AFTER_MS;
+    const byStatus = (status: "failed" | "accepted" | "pending") =>
+      ctx.db
+        .query("automationEvents")
+        .withIndex("by_status_updatedAt", (q) =>
+          status === "failed"
+            ? q.eq("status", status)
+            : q.eq("status", status).lt("updatedAt", cutoff),
+        )
+        .order("desc")
+        .take(HEALTH_LIMIT * 2);
+    const candidates = (
+      await Promise.all(
+        (["failed", "accepted", "pending"] as const).map(byStatus),
+      )
+    ).flat();
+    const troubled = candidates
+      .filter(
+        (e) =>
+          e.kind !== "workflow_error" &&
+          (e.status === "failed" || isStuck(e, now)),
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, HEALTH_LIMIT);
+
+    const events = await Promise.all(
+      troubled.map(async (event) => {
+        const request = event.requestId
+          ? await ctx.db.get("requests", event.requestId)
+          : null;
+        const toolId = event.toolId ?? request?.toolId;
+        const tool = toolId ? await ctx.db.get("tools", toolId) : null;
+        return {
+          _id: event._id,
+          kind: event.kind,
+          label: subjectOf(event),
+          toolName: tool?.name ?? null,
+          requestId: event.requestId ?? null,
+          status: event.status,
+          stuck: event.status !== "failed",
+          lastError: event.lastError ?? null,
+          attempts: event.attempts,
+          updatedAt: event.updatedAt,
+        };
+      }),
+    );
+
+    const workflowErrors = (
+      await ctx.db
+        .query("automationEvents")
+        .withIndex("by_kind_updatedAt", (q) => q.eq("kind", "workflow_error"))
+        .order("desc")
+        .take(WORKFLOW_ERROR_LIMIT)
+    ).map((e) => ({
+      _id: e._id,
+      event: e.event,
+      workflowName: e.workflowName ?? null,
+      failedNode: e.failedNode ?? null,
+      executionUrl: e.executionUrl ?? null,
+      message: e.lastError ?? null,
+      at: e.updatedAt,
+    }));
+
+    return {
+      events,
+      workflowErrors,
+      lastReminderRunAt: await lastReminderRunAt(ctx),
+    };
   },
 });
 
