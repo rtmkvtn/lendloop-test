@@ -43,6 +43,18 @@ export const ANNA = {
   email: "anna@example.com",
 };
 
+export const BEN = {
+  subject: "user_ben",
+  name: "Ben Ortiz",
+  email: "ben@example.com",
+};
+
+export const CARA = {
+  subject: "user_cara",
+  name: "Cara Novak",
+  email: "cara@example.com",
+};
+
 export const OMAR = {
   subject: "user_omar",
   name: "Omar Haddad",

@@ -1,10 +1,5 @@
-import { PagePlaceholder } from "@/components/page-placeholder";
+import { MyRequests } from "@/components/requests/request-views";
 
 export default function MyRequestsPage() {
-  return (
-    <PagePlaceholder
-      title="My requests"
-      empty="You haven't requested any Tools yet. Find one in All tools."
-    />
-  );
+  return <MyRequests />;
 }

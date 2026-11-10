@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import * as toolsModule from "./tools";
-import { ANNA, OMAR, newTest, seedViewer } from "./testing.helpers";
+import { ANNA, BEN, OMAR, newTest, seedViewer } from "./testing.helpers";
 
 const drill = {
   name: "Cordless drill",
@@ -85,12 +85,6 @@ describe("tools.create", () => {
     expect(rows).toHaveLength(0);
   });
 });
-
-const BEN = {
-  subject: "user_ben",
-  name: "Ben Ortiz",
-  email: "ben@example.com",
-};
 
 async function annaWithDrill() {
   const t = newTest();

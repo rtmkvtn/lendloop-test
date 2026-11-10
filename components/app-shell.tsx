@@ -35,6 +35,10 @@ function useEnsureMe() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { me, error } = useEnsureMe();
   const pathname = usePathname();
+  const pendingIncoming = useQuery(
+    api.requests.countPendingIncoming,
+    me ? {} : "skip",
+  );
 
   if (error) {
     return (
@@ -100,6 +104,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 {item.label}
+                {item.href === "/incoming" && pendingIncoming ? (
+                  <span
+                    className="ml-2 rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground tabular-nums"
+                    aria-label={`${pendingIncoming} pending`}
+                  >
+                    {pendingIncoming}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

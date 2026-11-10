@@ -55,7 +55,7 @@ export default defineConfig([
     },
   },
   {
-    files: ["convex/auth.config.ts"],
+    files: ["convex/auth.config.ts", "convex/lib/env.ts"],
     rules: { "@convex-dev/no-process-env": "off" },
   },
   prettier,
