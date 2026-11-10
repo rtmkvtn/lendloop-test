@@ -8,8 +8,11 @@
  * @module
  */
 
+import type * as lib_availability from "../lib/availability.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_functions from "../lib/functions.js";
+import type * as lib_toolFields from "../lib/toolFields.js";
+import type * as tools from "../tools.js";
 import type * as users from "../users.js";
 
 import type {
@@ -19,8 +22,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "lib/availability": typeof lib_availability;
   "lib/errors": typeof lib_errors;
   "lib/functions": typeof lib_functions;
+  "lib/toolFields": typeof lib_toolFields;
+  tools: typeof tools;
   users: typeof users;
 }>;
 
