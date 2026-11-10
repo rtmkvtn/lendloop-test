@@ -15,8 +15,9 @@ npm run setup               # checks the Clerk values, configures and pushes Con
 npm run dev                 # Next.js and Convex dev side by side
 ```
 
-Open http://localhost:3000 and sign in. To make yourself an Admin, sign in once, then run
-`npm run promote -- you@example.com`.
+Open http://localhost:3000 and sign in. The board already shows demo data. To try every flow with
+your own account, sign in once, then run `npm run demo -- you@example.com` (see
+[Demo data](#demo-data)). To only make yourself an Admin, run `npm run promote -- you@example.com`.
 
 ### Clerk checklist
 
@@ -53,8 +54,40 @@ Open http://localhost:3000 and sign in. To make yourself an Admin, sign in once,
 | `npm run dev`                | `next dev` and `convex dev` together                                                |
 | `npm run check`              | Lint, typecheck and tests (also run in CI and pre-commit)                           |
 | `npm run promote -- <email>` | Grants Admin through an internal Convex function                                    |
+| `npm run demo -- <email>`    | Makes a signed-in Member an Admin with demo Requests of their own; safe to re-run   |
+| `npm run reset`              | Wipes all LendLoop data in Convex and re-runs the base seed                         |
 | `npm run test:n8n`           | Cross-service test against the running stack: Convex → n8n → Mailpit and back       |
+| `npm run test:demo`          | Runs `demo` against the running stack and checks the Reminder arrives in Mailpit    |
 | `npm run n8n:export`         | Re-exports workflows from n8n into `n8n/workflows/` and fails on secret-shaped data |
+
+## Demo data
+
+`npm run setup` runs the base seed (`internal.seed.base`), which is skipped if any Tool exists:
+
+- 4 demo Members on `@example.com`; Priya Shah is a Trusted Lender. They have no Clerk account, so
+  nobody can sign in as them.
+- 8 Tools across every Category.
+- 6 Requests: pending, approved (on loan now), returned, declined, cancelled, and one Overdue Loan
+  (Tom has had Priya's Carpet cleaner for 3 days too long).
+- An activity line on every Request, from `automationEvents` written as already sent. Seeding never
+  emails anyone.
+
+Every seeded row has `demo: true`.
+
+`npm run demo -- <email>` (`internal.seed.demo`) needs that Member to have signed in once, and fails
+with a clear message otherwise. It makes them an Admin and gives them:
+
+- their own Pressure washer with a pending incoming Request from Marco;
+- an Overdue Loan as Borrower (Priya's Tile cutter, due back 2 days ago);
+- a pending Request of their own (Lena's Camping stove).
+
+Running it again for the same email changes nothing more. Then **Admin → Run reminders now** sends
+the Reminder for the Tile cutter to your address, and it shows up in Mailpit. All email, seeded or
+not, goes to Mailpit; nothing leaves the machine.
+
+`npm run reset` (`internal.seed.reset`) deletes every row in every table, the audit log and your own
+`users` row included, cancels pending scheduled jobs and re-runs the base seed. Your account comes
+back as a plain Member on your next page load, so run `npm run demo` again afterwards.
 
 ## Notifications
 
