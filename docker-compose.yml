@@ -43,7 +43,11 @@ services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:2.47.3@sha256:6723b440354bb8e1395a1ecee12685fe03923f897bf6e4d5bb2c6c2bd2051697
     ports: ["127.0.0.1:5678:5678"]
-    volumes: [n8n-data:/home/node/.n8n]
+    # The stock entrypoint only installs custom certificates, so replacing it is safe.
+    entrypoint: ["tini", "--", "/bin/sh", "/opt/lendloop/entrypoint.sh"]
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./n8n:/opt/lendloop:ro
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: n8n-postgres
@@ -65,6 +69,9 @@ services:
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: "336"
+      # Read only by entrypoint.sh to render credentials; workflows can't see env ($env is blocked).
+      CONVEX_TO_N8N_SECRET: ${CONVEX_TO_N8N_SECRET:?set CONVEX_TO_N8N_SECRET in .env}
+      N8N_TO_CONVEX_SECRET: ${N8N_TO_CONVEX_SECRET:?set N8N_TO_CONVEX_SECRET in .env}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
     depends_on:

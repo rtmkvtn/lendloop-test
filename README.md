@@ -47,12 +47,30 @@ Open http://localhost:3000 and sign in. To make yourself an Admin, sign in once,
 
 ## Scripts
 
-| Script                       | What it does                                                                       |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
-| `npm run setup`              | Validates Clerk values, waits for Convex, sets function env vars, pushes functions |
-| `npm run dev`                | `next dev` and `convex dev` together                                               |
-| `npm run check`              | Lint, typecheck and tests (also run in CI and pre-commit)                          |
-| `npm run promote -- <email>` | Grants Admin through an internal Convex function                                   |
+| Script                       | What it does                                                                        |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `npm run setup`              | Validates Clerk values, waits for Convex, sets function env vars, pushes functions  |
+| `npm run dev`                | `next dev` and `convex dev` together                                                |
+| `npm run check`              | Lint, typecheck and tests (also run in CI and pre-commit)                           |
+| `npm run promote -- <email>` | Grants Admin through an internal Convex function                                    |
+| `npm run test:n8n`           | Cross-service test against the running stack: Convex → n8n → Mailpit and back       |
+| `npm run n8n:export`         | Re-exports workflows from n8n into `n8n/workflows/` and fails on secret-shaped data |
+
+## Notifications
+
+Creating a Request, or changing its status, queues a Notification in the same Convex transaction
+(`automationEvents`, keyed `notify:<requestId>:<event>`). A Convex action signs the payload and
+POSTs it to n8n, which verifies the signature, replies 202, deduplicates on `deliveryId`, sends the
+email to Mailpit and writes `sent` or `failed` back to `POST /automation/notifications`.
+
+- Signature (both directions): `X-LendLoop-Timestamp` and `X-LendLoop-Signature: v1=<hex>`, where
+  `hex = HMAC-SHA256(secret, "<ts>.<METHOD>.<path>.<rawBody>")`, within ±300 s.
+  `CONVEX_TO_N8N_SECRET` and `N8N_TO_CONVEX_SECRET` are separate.
+- Delivery: 202 → accepted; 5xx, network error or a 10 s timeout → retried after 30 s, 2 min,
+  10 min and 1 h, then failed; any other 4xx → failed at once.
+- n8n starts through `n8n/entrypoint.sh`, which renders `n8n/credentials.template.json` from the
+  container env, imports credentials and workflows, and publishes the trigger workflows. Workflows
+  can't read env (`$env` stays blocked); secrets live only in n8n's Crypto credentials.
 
 Every value in `.env.example` except the three Clerk values is a dev-only default. Never reuse them
 in production.

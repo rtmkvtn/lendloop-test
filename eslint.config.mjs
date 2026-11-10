@@ -58,6 +58,11 @@ export default defineConfig([
     files: ["convex/auth.config.ts", "convex/lib/env.ts"],
     rules: { "@convex-dev/no-process-env": "off" },
   },
+  {
+    // Run by plain `node` inside the n8n image, which is CommonJS.
+    files: ["n8n/**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
   prettier,
   globalIgnores([
     ".next/**",
