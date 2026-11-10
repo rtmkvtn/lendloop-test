@@ -370,6 +370,8 @@ No automation fails silently.
   recent workflow errors with links to their n8n executions, and the last Reminder run time.
   `tool.removed` Notifications have no Request, so they show here with their Tool's name.
 - n8n keeps failed executions (`EXECUTIONS_DATA_SAVE_ON_ERROR=all`) and prunes after 14 days.
+  Successful ones aren't saved (`EXECUTIONS_DATA_SAVE_ON_SUCCESS=none`), because they hold email
+  text and addresses.
 
 ### Residual risks
 
@@ -386,6 +388,48 @@ No automation fails silently.
 - **The Error Workflow fails itself.** Then the only trace is n8n's execution log.
 - **An event fails while n8n is down for hours.** After the last retry (about 1 h 12 min) it is
   `failed` and needs an Admin Retry; nothing re-sends it automatically.
+- **A delivery action dies mid-run.** Configuration errors and n8n answers are all recorded, but if
+  the Convex action itself crashes (a platform failure, not an n8n one), the Notification stays
+  `pending` and "queued". Pending Notifications aren't swept as stuck because a scheduled retry can
+  legitimately wait an hour.
+- **A late write-back from an earlier delivery.** Write-backs are keyed by `eventId`, not
+  `deliveryId`. If a stuck Notification is retried and the first delivery's `sent` arrives late, it
+  settles the retry too, and the retry's own result is dropped as a duplicate.
+- **A manual run counts as the daily run.** `lastReminderRunAt` is set by every signed Overdue
+  Loans read, including "Run reminders now", so a dead 09:00 schedule goes unreported on a day an
+  Admin ran reminders by hand. The query string isn't signed, so a flag there couldn't be trusted.
+- **Date pickers use the browser's date.** The Request drawer bounds dates by the Member's local
+  day, while Convex checks against `APP_TIMEZONE`. Near midnight a Member far from `APP_TIMEZONE`
+  can pick a date Convex rejects; the error says why.
+
+**Accepted in the pre-submission security review** ([#29](https://github.com/rtmkvtn/lendloop-test/issues/29)):
+
+- **Replays inside the signature window.** There is no nonce, so a captured request can be replayed
+  for 300 s. Every write is idempotent (table above), and replaying the reminder trigger only
+  starts a run that skips Reminders already `sent`.
+- **Committed dev-only secrets.** `.env.example` pins the Convex instance secret and admin key, the
+  n8n encryption key and the HMAC secrets, and `docker-compose.yml` holds the n8n owner's password
+  hash. They protect services bound to `127.0.0.1` only and are never valid elsewhere. gitleaks
+  allowlists exactly the two values it would flag, so a real key pasted into the template still
+  fails CI.
+- **`script-src 'unsafe-inline'` in the CSP.** The CSP is static so pages stay prerenderable with
+  Cache Components; a nonce would force every page to render dynamically. Everything else is
+  locked down (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri` and
+  `form-action 'self'`), and `'unsafe-eval'` is dev-only. HSTS is sent by production builds only.
+- **Failed n8n executions keep their data.** A failed run's execution, which can include the
+  recipient's address and the email text, stays in n8n's database for 14 days so the Admin link
+  can show what broke. Successful runs aren't saved. n8n is bound to `127.0.0.1`.
+- **The Admin alert email isn't host-scrubbed.** It goes only to `ADMIN_ALERT_EMAIL`, and the
+  operator needs the failing host. What Convex stores and shows is scrubbed.
+- **`lastError` scrubbing is pattern-based.** It replaces emails, URLs, IP addresses, `host:port`
+  and the host after `ENOTFOUND`/`EAI_AGAIN`, then caps the text at 200 characters. A bare internal
+  hostname in some other phrasing would get through.
+- **Dev-dependency advisories.** `npm audit` reports moderate issues in `deepmerge` (via the
+  `shadcn` CLI) and `minimatch` (via `typescript-eslint`). Neither ships in the app; CI fails on
+  high or critical advisories in runtime dependencies.
+- **Per-row reads in Admin and Request queries.** `listListings`, `listLoans` and the Request rows
+  read owner, Tool and events row by row. That is fine at neighbourhood scale; a bigger deployment
+  would denormalise display names.
 
 ## 9. Data minimisation
 
@@ -412,8 +456,8 @@ link, never the payload.
 
 **Why email is stored.** Notifications and Reminders are addressed from Convex, so the `users` row
 keeps the email from the Clerk session token. It is refreshed on every sign-in and used for nothing
-else. `lastError` strings are sanitised (addresses replaced by `[email]`, 200 characters max) because
-Members and Admins see them.
+else. `lastError` strings are sanitised (email addresses, URLs, IPs and internal `host:port`
+replaced by `[email]`, `[url]` or `[host]`, 200 characters max) because Members and Admins see them.
 
 ## 10. Environment variables
 
@@ -445,11 +489,11 @@ them in production.
 
 ## 11. Testing
 
-| Command             | What it covers                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| `npm run check`     | ESLint, `tsc`, Vitest and the n8n secret scan. Runs in CI (with `npm audit`) and in the pre-commit hook |
-| `npm run test:n8n`  | The Convex ↔ n8n ↔ Mailpit seam against the running stack                                               |
-| `npm run test:demo` | `npm run demo` against the running stack, and that its Reminder arrives in Mailpit                      |
+| Command             | What it covers                                                                                                                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run check`     | ESLint, `tsc`, Vitest and the n8n secret scan. Runs in the pre-commit hook and in CI, which also runs gitleaks over the full history and `npm audit --omit=dev --audit-level=high` |
+| `npm run test:n8n`  | The Convex ↔ n8n ↔ Mailpit seam against the running stack                                                                                                                          |
+| `npm run test:demo` | `npm run demo` against the running stack, and that its Reminder arrives in Mailpit                                                                                                 |
 
 **Vitest with `convex-test`** (`convex/*.test.ts`) calls every public function, HTTP action and
 cron through the Convex function boundary as a signed-out caller, another Member, the Lender or
@@ -541,8 +585,9 @@ This repo runs locally only. A production deployment on AWS would change:
   missed-run check).
 - **Rate limiting:** on the Convex HTTP actions and the n8n webhooks (WAF or API gateway), and per
   Member on mutations such as `requests.create`.
-- **Security headers and CSP** on Next.js: a strict Content-Security-Policy allowing Clerk and Convex
-  origins, HSTS, `frame-ancestors 'none'`, `Referrer-Policy`, `Permissions-Policy`.
+- **Security headers and CSP:** already set by `next.config.ts` ([`lib/security-headers.ts`](lib/security-headers.ts)),
+  with HSTS in production builds. Production would add a nonce-based `script-src` (and accept dynamic
+  rendering) and a `report-to` endpoint.
 - **Backups and retention:** point-in-time recovery on the databases; a retention period for
   `automationEvents` and n8n execution data (already pruned after 14 days); `auditLog` kept
   append-only and archived rather than deleted.
