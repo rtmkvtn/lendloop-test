@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { AdminConsole } from "@/components/admin/admin-console";
 import { PagePlaceholder } from "@/components/page-placeholder";
 import { api } from "@/convex/_generated/api";
 
@@ -13,10 +14,5 @@ export default function AdminPage() {
       <PagePlaceholder title="Admin" empty="This page is only for Admins." />
     );
   }
-  return (
-    <PagePlaceholder
-      title="Admin"
-      empty="Loans, Lenders, Listings and Automation health will appear here."
-    />
-  );
+  return <AdminConsole />;
 }
