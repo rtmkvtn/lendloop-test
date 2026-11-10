@@ -4,15 +4,14 @@ import type { QueryCtx } from "./_generated/server";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { memberMutation, memberQuery, type Me } from "./lib/functions";
-import { displayName } from "./lib/members";
 import {
   activityOf,
   automationEventsOf,
   queueNotification,
 } from "./lib/notifications";
 import { MAX_REQUEST_DAYS } from "./lib/requestFields";
+import { requestRow } from "./lib/requestRows";
 import {
-  allowedActions,
   assertNoLoanOverlap,
   assertTransition,
   pendingRequestsOf,
@@ -50,34 +49,8 @@ async function loadRequestAsBorrower(ctx: Ctx, requestId: Id<"requests">) {
   return request;
 }
 
-async function toRow(ctx: Ctx, request: Doc<"requests">, today: string) {
-  const [tool, lender, borrower, events] = await Promise.all([
-    ctx.db.get("tools", request.toolId),
-    ctx.db.get("users", request.lenderId),
-    ctx.db.get("users", request.borrowerId),
-    automationEventsOf(ctx, request._id),
-  ]);
-  const latest = events.at(-1);
-  return {
-    _id: request._id,
-    _creationTime: request._creationTime,
-    status: request.status,
-    startDate: request.startDate,
-    endDate: request.endDate,
-    overdue: request.status === "approved" && request.endDate < today,
-    tool: {
-      name: tool?.name ?? "A removed Tool",
-      removed: !tool || tool.removedAt !== undefined,
-    },
-    lender: {
-      name: displayName(lender),
-      trusted: lender?.trustedLender ?? false,
-    },
-    borrower: { name: displayName(borrower) },
-    actions: allowedActions(request, ctx.me._id, today),
-    activity: latest ? activityOf(latest) : null,
-  };
-}
+const toRow = (ctx: Ctx, request: Doc<"requests">, today: string) =>
+  requestRow(ctx, request, ctx.me._id, today);
 
 const vRequestId = { requestId: v.id("requests") };
 
@@ -208,7 +181,7 @@ export const countPendingIncoming = memberQuery({
 const HISTORY_LABELS: Record<string, string> = {
   "request.approved": "Approved",
   "request.declined": "Declined",
-  "request.auto_declined": "Declined automatically: the Tool was deleted",
+  "request.auto_declined": "Declined automatically: the Tool was removed",
   "request.cancelled": "Cancelled",
   "request.returned": "Marked returned",
 };

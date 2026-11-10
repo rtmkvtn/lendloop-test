@@ -26,6 +26,8 @@ export const NOTIFICATION_EVENTS = [
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
+export const TOOL_REMOVED_EVENT = "tool.removed";
+
 export const vAutomationKind = v.union(
   ...AUTOMATION_KINDS.map((k) => v.literal(k)),
 );
