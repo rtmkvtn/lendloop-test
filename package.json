@@ -18,6 +18,8 @@
     "promote": "node scripts/promote.mjs",
     "test:n8n": "node --test scripts/test-n8n.mjs",
     "n8n:export": "node scripts/n8n-export.mjs",
+    "demo:break-smtp": "node scripts/demo-smtp.mjs break",
+    "demo:fix-smtp": "node scripts/demo-smtp.mjs fix",
     "prepare": "husky"
   },
   "dependencies": {

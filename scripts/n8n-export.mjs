@@ -102,13 +102,26 @@ function exportFromContainer() {
           f,
         ]),
     );
+    // entrypoint.sh rendered the alert address in; put the placeholder back.
+    const alertEmail = sh("docker", [
+      "compose",
+      "exec",
+      "-T",
+      "n8n",
+      "printenv",
+      "ADMIN_ALERT_EMAIL",
+    ]).trim();
     for (const file of readdirSync(local).filter((f) => f.endsWith(".json"))) {
       const wf = normalise(JSON.parse(readFileSync(join(local, file), "utf8")));
       const target = existing.get(wf.id) ?? `${wf.id}.json`;
-      writeFileSync(
-        join(WORKFLOWS, target),
-        JSON.stringify(wf, null, 2) + "\n",
-      );
+      let text = JSON.stringify(wf, null, 2) + "\n";
+      if (alertEmail) {
+        text = text.replaceAll(
+          JSON.stringify(alertEmail),
+          '"${ADMIN_ALERT_EMAIL}"',
+        );
+      }
+      writeFileSync(join(WORKFLOWS, target), text);
       console.log(`✔ exported ${wf.name} → ${WORKFLOWS}/${target}`);
     }
   } finally {

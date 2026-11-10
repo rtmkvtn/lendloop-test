@@ -3,7 +3,8 @@
   "name": "LendLoop: request notifications",
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "llErrorWf0000001"
   },
   "nodes": [
     {

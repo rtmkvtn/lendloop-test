@@ -55,6 +55,8 @@ Open http://localhost:3000 and sign in. To make yourself an Admin, sign in once,
 | `npm run promote -- <email>` | Grants Admin through an internal Convex function                                    |
 | `npm run test:n8n`           | Cross-service test against the running stack: Convex → n8n → Mailpit and back       |
 | `npm run n8n:export`         | Re-exports workflows from n8n into `n8n/workflows/` and fails on secret-shaped data |
+| `npm run demo:break-smtp`    | Points n8n's SMTP credential at a dead port, so every email fails                   |
+| `npm run demo:fix-smtp`      | Points it back at Mailpit                                                           |
 
 ## Notifications
 
@@ -88,6 +90,43 @@ that still fails after 3 tries stops the run.
   `CONVEX_TO_N8N_SECRET`).
 - Residual risk: if the email goes out but every write-back retry fails, a later run the same day
   sends one extra Reminder.
+
+## Failure visibility
+
+No automation fails silently.
+
+- **Members** see a failed Notification or Reminder in red on the Request's activity line and in its
+  drawer ("Request email to lender failed, retrying", "Reminder failed").
+- **Error Workflow** (`LendLoop: error handler`, `n8n/workflows/error.json`) is the
+  `settings.errorWorkflow` of both workflows. It must be published, or n8n refuses to call it.
+  For every failed production run it emails `ADMIN_ALERT_EMAIL` (default `alerts@lendloop.local`,
+  in Mailpit) with the workflow, the failed node, the error (addresses scrubbed) and the execution
+  link, and no payload. It then makes a signed `POST /automation/errors`, which records a
+  `workflow_error` keyed `workflow_error:n8n:<executionId>`, so a repeat is a no-op. The alert
+  address reaches the workflow as a `${ADMIN_ALERT_EMAIL}` placeholder that `entrypoint.sh` renders
+  at start, because workflows can't read env; `npm run n8n:export` puts the placeholder back.
+- **Stuck events:** an hourly Convex cron (`:17` UTC) marks events `failed` with "No confirmation
+  from n8n" once they have waited over 30 minutes for n8n's write-back.
+- **Missed run:** Convex crons are UTC-only, so an hourly cron (`:05` UTC) checks whether it's past
+  10:00 in `APP_TIMEZONE`. If any Loan is Overdue and the last reminder run wasn't today, it records
+  a `workflow_error` "Reminder run missed", once per day.
+- **Run reminders now:** if Convex can't start the n8n run (not configured, unreachable, non-2xx),
+  that's recorded as a `workflow_error` too.
+- **Automation health** (Admin page) lists failed and stuck events, each with **Retry**, the 20 most
+  recent workflow errors with links to their n8n executions, and the last reminder run time.
+  `admin.retryEvent` (audited) keeps the event's row and idempotency key and bumps
+  `retryGeneration`, which changes the `deliveryId` n8n dedupes on, so the retry isn't dropped.
+  A Notification is delivered again with a fresh backoff; a Reminder triggers a reminder run, and
+  only while its Loan is still Overdue. `tool.removed` Notifications have no Request, so they show
+  here with their Tool's name.
+- n8n keeps failed executions (`EXECUTIONS_DATA_SAVE_ON_ERROR=all`) and prunes after 14 days.
+
+**Try it:** `npm run demo:break-smtp`, then create a Request (or press "Run reminders now" with an
+Overdue Loan). The activity line turns red and Automation health lists the event. Run
+`npm run demo:fix-smtp` and press Retry. A failed email alone doesn't fail the n8n run (it's
+written back as `failed`); the alert email fires for run-level failures such as a write-back that
+Convex keeps rejecting. `npm run test:n8n` forces one by giving Convex the wrong
+`N8N_TO_CONVEX_SECRET` for a moment.
 
 Every value in `.env.example` except the three Clerk values is a dev-only default. Never reuse them
 in production.
