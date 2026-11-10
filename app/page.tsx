@@ -1,6 +1,7 @@
 import { Show, SignInButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { Suspense } from "react";
+import { PublicToolList } from "@/components/tools/public-tool-list";
 import { Button } from "@/components/ui/button";
 
 export default function Landing() {
@@ -31,6 +32,7 @@ export default function Landing() {
           </Button>
         </Show>
       </Suspense>
+      <PublicToolList />
     </main>
   );
 }
