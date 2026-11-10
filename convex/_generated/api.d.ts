@@ -8,10 +8,17 @@
  * @module
  */
 
+import type * as lib_audit from "../lib/audit.js";
 import type * as lib_availability from "../lib/availability.js";
+import type * as lib_dates from "../lib/dates.js";
+import type * as lib_env from "../lib/env.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_functions from "../lib/functions.js";
+import type * as lib_members from "../lib/members.js";
+import type * as lib_requestFields from "../lib/requestFields.js";
+import type * as lib_requestLifecycle from "../lib/requestLifecycle.js";
 import type * as lib_toolFields from "../lib/toolFields.js";
+import type * as requests from "../requests.js";
 import type * as tools from "../tools.js";
 import type * as users from "../users.js";
 
@@ -22,10 +29,17 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "lib/audit": typeof lib_audit;
   "lib/availability": typeof lib_availability;
+  "lib/dates": typeof lib_dates;
+  "lib/env": typeof lib_env;
   "lib/errors": typeof lib_errors;
   "lib/functions": typeof lib_functions;
+  "lib/members": typeof lib_members;
+  "lib/requestFields": typeof lib_requestFields;
+  "lib/requestLifecycle": typeof lib_requestLifecycle;
   "lib/toolFields": typeof lib_toolFields;
+  requests: typeof requests;
   tools: typeof tools;
   users: typeof users;
 }>;

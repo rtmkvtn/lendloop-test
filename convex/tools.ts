@@ -1,8 +1,14 @@
 import { v, type Infer } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { availabilityOf } from "./lib/availability";
 import { fail } from "./lib/errors";
+import { displayName } from "./lib/members";
+import {
+  loansOf,
+  pendingRequestsOf,
+  transitionRequest,
+} from "./lib/requestLifecycle";
 import {
   memberMutation,
   memberQuery,
@@ -50,13 +56,6 @@ async function loadOwnTool(ctx: QueryCtx & { me: Me }, toolId: Id<"tools">) {
   return tool;
 }
 
-// users.ensureMe falls back to the email when Clerk sends no name, and the
-// board must never show an email.
-function lenderName(user: Doc<"users"> | null) {
-  if (!user || user.name.includes("@")) return "A LendLoop member";
-  return user.name;
-}
-
 export const listBoard = memberQuery({
   args: { category: v.optional(vCategory) },
   handler: async (ctx, { category }) => {
@@ -82,7 +81,7 @@ export const listBoard = memberQuery({
           condition: tool.condition,
           description: tool.description,
           lender: {
-            name: lenderName(owner),
+            name: displayName(owner),
             trusted: owner?.trustedLender ?? false,
           },
           isMine: tool.ownerId === ctx.me._id,
@@ -155,6 +154,15 @@ export const remove = memberMutation({
   args: { toolId: v.id("tools") },
   handler: async (ctx, { toolId }) => {
     await loadOwnTool(ctx, toolId);
+    if ((await loansOf(ctx, toolId)).length > 0) {
+      fail("CONFLICT", "Mark the loan returned first");
+    }
+    for (const request of await pendingRequestsOf(ctx, toolId)) {
+      await transitionRequest(ctx, request, "declined", {
+        actorId: ctx.me._id,
+        auto: true,
+      });
+    }
     await ctx.db.patch("tools", toolId, {
       removedAt: Date.now(),
       removedBy: ctx.me._id,
