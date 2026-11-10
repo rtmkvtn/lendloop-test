@@ -72,5 +72,22 @@ email to Mailpit and writes `sent` or `failed` back to `POST /automation/notific
   container env, imports credentials and workflows, and publishes the trigger workflows. Workflows
   can't read env (`$env` stays blocked); secrets live only in n8n's Crypto credentials.
 
+## Reminders
+
+Every day at 09:00 in `APP_TIMEZONE` (n8n's `GENERIC_TIMEZONE`), the n8n reminder workflow makes a
+signed `GET /automation/overdue-loans`. Convex answers with `asOf` (today in `APP_TIMEZONE`) and the
+Overdue Loans that have no `sent` Reminder for that day, each with
+`reminderKey = reminder:<loanId>:<asOf>`, and records `lastReminderRunAt`. n8n loops over them one
+at a time: it emails the Borrower (3 tries, 5 s apart) and writes `sent` or `failed` back to the
+signed, idempotent `POST /automation/reminders`. A failed email doesn't stop the loop; a write-back
+that still fails after 3 tries stops the run.
+
+- Running again the same day re-sends only Reminders that failed.
+- `admin.runRemindersNow` (Admins only, audited) triggers a run at once through the signed n8n
+  webhook `POST /webhook/reminders/run` (`N8N_REMINDERS_WEBHOOK_URL`, signed with
+  `CONVEX_TO_N8N_SECRET`).
+- Residual risk: if the email goes out but every write-back retry fails, a later run the same day
+  sends one extra Reminder.
+
 Every value in `.env.example` except the three Clerk values is a dev-only default. Never reuse them
 in production.

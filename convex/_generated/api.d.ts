@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
+import type * as devSupport from "../devSupport.js";
 import type * as http from "../http.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_automationFields from "../lib/automationFields.js";
@@ -18,11 +20,13 @@ import type * as lib_errors from "../lib/errors.js";
 import type * as lib_functions from "../lib/functions.js";
 import type * as lib_members from "../lib/members.js";
 import type * as lib_notifications from "../lib/notifications.js";
+import type * as lib_reminders from "../lib/reminders.js";
 import type * as lib_requestFields from "../lib/requestFields.js";
 import type * as lib_requestLifecycle from "../lib/requestLifecycle.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_toolFields from "../lib/toolFields.js";
 import type * as notifications from "../notifications.js";
+import type * as reminders from "../reminders.js";
 import type * as requests from "../requests.js";
 import type * as tools from "../tools.js";
 import type * as users from "../users.js";
@@ -34,6 +38,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
+  devSupport: typeof devSupport;
   http: typeof http;
   "lib/audit": typeof lib_audit;
   "lib/automationFields": typeof lib_automationFields;
@@ -44,11 +50,13 @@ declare const fullApi: ApiFromModules<{
   "lib/functions": typeof lib_functions;
   "lib/members": typeof lib_members;
   "lib/notifications": typeof lib_notifications;
+  "lib/reminders": typeof lib_reminders;
   "lib/requestFields": typeof lib_requestFields;
   "lib/requestLifecycle": typeof lib_requestLifecycle;
   "lib/signature": typeof lib_signature;
   "lib/toolFields": typeof lib_toolFields;
   notifications: typeof notifications;
+  reminders: typeof reminders;
   requests: typeof requests;
   tools: typeof tools;
   users: typeof users;

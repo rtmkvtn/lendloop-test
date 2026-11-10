@@ -7,7 +7,7 @@ node /opt/lendloop/render.cjs /opt/lendloop/credentials.template.json /tmp/creds
 n8n import:credentials --input=/tmp/creds.json
 rm -f /tmp/creds.json
 n8n import:workflow --separate --input=/opt/lendloop/workflows
-for id in llNotifyWf000001; do
+for id in llNotifyWf000001 llReminderWf0001; do
   n8n publish:workflow --id="$id"
 done
 exec n8n start
