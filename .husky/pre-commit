@@ -1,0 +1,4 @@
+# Git GUIs and shells without `nvm use` would otherwise run the hook on the default Node.
+if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh" && nvm use --silent >/dev/null; fi
+npx lint-staged
+npm run check
