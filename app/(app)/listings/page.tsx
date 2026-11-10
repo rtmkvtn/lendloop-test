@@ -1,10 +1,5 @@
-import { PagePlaceholder } from "@/components/page-placeholder";
+import { MyListings } from "@/components/tools/my-listings";
 
 export default function MyListingsPage() {
-  return (
-    <PagePlaceholder
-      title="My listings"
-      empty="You haven't listed any Tools yet."
-    />
-  );
+  return <MyListings />;
 }
