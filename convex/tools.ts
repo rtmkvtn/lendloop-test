@@ -68,6 +68,14 @@ export const listBoard = memberQuery({
           (tool) => tool.removedAt === undefined,
         );
 
+    const myRequests = await ctx.db
+      .query("requests")
+      .withIndex("by_borrower", (q) => q.eq("borrowerId", ctx.me._id))
+      .collect();
+    const pendingToolIds = new Set(
+      myRequests.filter((r) => r.status === "pending").map((r) => r.toolId),
+    );
+
     return await Promise.all(
       tools.map(async (tool) => {
         const lender = await ctx.db.get("users", tool.ownerId);
@@ -79,6 +87,7 @@ export const listBoard = memberQuery({
           description: tool.description,
           lender: lenderOf(lender),
           isMine: tool.ownerId === ctx.me._id,
+          myPendingRequest: pendingToolIds.has(tool._id),
           availability: await availabilityOf(ctx, tool),
         };
       }),

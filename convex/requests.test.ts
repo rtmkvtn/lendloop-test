@@ -658,6 +658,26 @@ describe("request views", () => {
   });
 });
 
+describe("pending Request on the board", () => {
+  test("marks the Tool for the Borrower who asked, until the Request is decided", async () => {
+    const c = await lendingCircle();
+    const requestId = await c.ben.as.mutation(api.requests.create, {
+      toolId: c.toolId,
+      startDate: "2026-11-10",
+      endDate: "2026-11-12",
+    });
+
+    const [forBen] = await c.ben.as.query(api.tools.listBoard, {});
+    const [forCara] = await c.cara.as.query(api.tools.listBoard, {});
+    expect(forBen?.myPendingRequest).toBe(true);
+    expect(forCara?.myPendingRequest).toBe(false);
+
+    await c.anna.as.mutation(api.requests.decline, { requestId });
+    const [afterDecline] = await c.ben.as.query(api.tools.listBoard, {});
+    expect(afterDecline?.myPendingRequest).toBe(false);
+  });
+});
+
 describe("availability on the board", () => {
   async function loanFor(
     c: Awaited<ReturnType<typeof lendingCircle>>,

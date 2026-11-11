@@ -195,6 +195,7 @@ describe("tools.listBoard", () => {
           ...drill,
           lender: { name: "Anna Lee", trusted: true },
           isMine: false,
+          myPendingRequest: false,
           availability: { kind: "available" },
         },
         {
@@ -205,6 +206,7 @@ describe("tools.listBoard", () => {
           description: "",
           lender: { name: "Ben Ortiz", trusted: false },
           isMine: true,
+          myPendingRequest: false,
           availability: { kind: "available" },
         },
       ]),

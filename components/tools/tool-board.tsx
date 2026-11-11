@@ -87,6 +87,13 @@ export function ToolBoard() {
                 <TableCell className="text-right">
                   {tool.isMine ? (
                     <Badge variant="outline">Yours</Badge>
+                  ) : tool.myPendingRequest ? (
+                    <Link
+                      href="/requests"
+                      className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                    >
+                      Requested
+                    </Link>
                   ) : (
                     <Button
                       size="sm"
