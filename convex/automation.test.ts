@@ -465,6 +465,38 @@ describe("admin.retryEvent", () => {
     expect(calls.map((c) => c.url)).toEqual([REMINDERS_WEBHOOK]);
   });
 
+  test("refuses an earlier day's Reminder, which stays failed as history", async () => {
+    const calls = stubN8n();
+    const { t, omar, event, loan } = await circle();
+    const requestId = await loan("2026-11-07");
+    const id = await event({
+      kind: "reminder",
+      event: "reminder.overdue",
+      requestId,
+      idempotencyKey: `reminder:${requestId}:2026-11-09`,
+      status: "failed",
+      lastError: "connect ECONNREFUSED",
+      updatedAt: Date.now() - 20 * 60 * MIN,
+    });
+    const before = await get(t, id);
+
+    await expect(
+      omar.as.mutation(api.admin.retryEvent, { eventId: id }),
+    ).rejects.toMatchObject({
+      data: {
+        code: "CONFLICT",
+        message: expect.stringContaining("earlier day"),
+      },
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.setSystemTime(Date.now() + 31 * MIN);
+    await t.mutation(internal.automation.markStuckEvents, {});
+
+    expect(calls).toEqual([]);
+    expect(await audit(t)).toEqual([]);
+    expect(await get(t, id)).toEqual(before);
+  });
+
   test("rejects a Reminder whose Loan was returned", async () => {
     stubN8n();
     const { t, omar, event, loan } = await circle();
@@ -572,6 +604,28 @@ describe("admin.automationHealth", () => {
     ]);
     expect(health.lastReminderRunAt).toBe(ranAt);
     expect(JSON.stringify(health)).not.toContain("@example.com");
+  });
+
+  test("offers Retry on today's failed Reminder but shows an earlier day's as history", async () => {
+    const { omar, event, loan } = await circle();
+    const requestId = await loan("2026-11-07");
+    const reminder = (asOf: string, minutesAgo: number) =>
+      event({
+        kind: "reminder",
+        event: "reminder.overdue",
+        requestId,
+        idempotencyKey: `reminder:${requestId}:${asOf}`,
+        status: "failed",
+        updatedAt: Date.now() - minutesAgo * MIN,
+      });
+    const today = await reminder("2026-11-10", 1);
+    const earlier = await reminder("2026-11-09", 24 * 60);
+
+    const health = await omar.as.query(api.admin.automationHealth, {});
+    expect(health.events).toEqual([
+      expect.objectContaining({ _id: today, retryable: true }),
+      expect.objectContaining({ _id: earlier, retryable: false }),
+    ]);
   });
 
   test("a burst of workflow errors doesn't hide a failed email", async () => {

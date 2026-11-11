@@ -356,8 +356,10 @@ Replays inside the 300 s window pass the signature check, so every write is idem
   re-sends to others).
 - **n8n write-backs:** 3 × 5 s. A write-back that still fails stops the run.
 - **Admin Retry** (`admin.retryEvent`, audited) keeps the row and its idempotency key. A
-  Notification is delivered again with a fresh backoff; a Reminder triggers a Reminder run, and only
-  while its Loan is still Overdue.
+  Notification is delivered again with a fresh backoff; a Reminder triggers a Reminder run, but only
+  if it is today's Reminder and its Loan is still Overdue. An earlier day's failed Reminder can't be
+  retried (`CONFLICT`), because a Reminder run only writes back today's key; it stays `failed` as
+  history, and today's run covers the Loan.
 
 ### Failure visibility
 
@@ -381,7 +383,8 @@ No automation fails silently.
   a "Reminder run missed" `workflow_error`, once per day.
 - **Run reminders now:** if Convex can't start the n8n run (not configured, unreachable, non-2xx),
   that's recorded as a `workflow_error` too.
-- **Automation health** (Admin page) lists failed and stuck events with **Retry**, the 20 most
+- **Automation health** (Admin page) lists failed and stuck events with **Retry** (an earlier
+  day's failed Reminder is shown as history, without Retry), the 20 most
   recent workflow errors with links to their n8n executions, and the last Reminder run time.
   `tool.removed` Notifications have no Request, so they show here with their Tool's name.
 - n8n keeps failed executions (`EXECUTIONS_DATA_SAVE_ON_ERROR=all`) and prunes after 14 days.
@@ -395,11 +398,10 @@ No automation fails silently.
   stopped run fires the Error Workflow, so it's visible. For a Notification, the event stays
   `accepted` until the stuck-event cron marks it `failed`; an Admin who retries it then sends the
   email a second time, because a retry gets a new `deliveryId`.
-- **Retrying an earlier day's Reminder.** A Reminder run only works on today's `asOf`. Retrying a
-  `failed` Reminder from an earlier day sends today's Reminder (new key) if the Loan is still
-  Overdue, but leaves the old row `pending`. The stuck-event cron marks it `failed` again at its
-  first check after 30 minutes, so it reappears in Automation health. Ignore it once today's
-  Reminder shows `sent`.
+- **An earlier day's failed Reminder stays failed.** A Reminder run only works on today's `asOf`, so
+  Retry refuses an earlier day's Reminder and the row stays `failed` in Automation health as
+  history. That day's Reminder is never re-sent; today's run reminds the Borrower if the Loan is
+  still Overdue.
 - **The Error Workflow fails itself.** Then the only trace is n8n's execution log.
 - **An event fails while n8n is down for hours.** After the last retry (about 1 h 12 min) it is
   `failed` and needs an Admin Retry; nothing re-sends it automatically.

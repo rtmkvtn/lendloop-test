@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { appendAudit } from "./lib/audit";
 import { type AutomationStatus, STUCK_AFTER_MS } from "./lib/automationFields";
 import {
+  isRetryable,
   isStuck,
   KIND_POLICY,
   policyOf,
@@ -200,6 +201,7 @@ export const automationHealth = adminQuery({
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, HEALTH_LIMIT);
 
+    const today = todayInAppTimeZone(now);
     const events = await Promise.all(
       troubled.map(async (event) => {
         const request = event.requestId
@@ -215,6 +217,7 @@ export const automationHealth = adminQuery({
           requestId: event.requestId ?? null,
           status: event.status,
           stuck: event.status !== "failed",
+          retryable: isRetryable(event, today),
           lastError: event.lastError ?? null,
           attempts: event.attempts,
           updatedAt: event.updatedAt,
