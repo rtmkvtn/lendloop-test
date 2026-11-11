@@ -9,6 +9,7 @@ import {
   automationEventsOf,
   queueNotification,
 } from "./lib/notifications";
+import { hasEnded } from "./lib/overdue";
 import { MAX_REQUEST_DAYS } from "./lib/requestFields";
 import { requestRow } from "./lib/requestRows";
 import {
@@ -105,7 +106,7 @@ export const approve = memberMutation({
   handler: async (ctx, { requestId }) => {
     const request = await loadRequestAsLender(ctx, requestId);
     assertTransition(request.status, "approved");
-    if (request.endDate < todayInAppTimeZone()) {
+    if (hasEnded(request, todayInAppTimeZone())) {
       fail("CONFLICT", "These dates have passed. Decline it instead.");
     }
     await assertNoLoanOverlap(ctx, request.toolId, request);

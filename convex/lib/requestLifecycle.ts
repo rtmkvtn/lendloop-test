@@ -5,6 +5,7 @@ import type { NotificationEvent } from "./automationFields";
 import { queueNotification } from "./notifications";
 import { rangesOverlap } from "./dates";
 import { fail } from "./errors";
+import { hasEnded } from "./overdue";
 import type { RequestAction, RequestStatus } from "./requestFields";
 
 const ALLOWED: Record<RequestStatus, readonly RequestStatus[]> = {
@@ -94,7 +95,7 @@ export function allowedActions(
 ): RequestAction[] {
   if (viewerId === request.lenderId) {
     if (request.status === "pending") {
-      return request.endDate >= today ? ["approve", "decline"] : ["decline"];
+      return hasEnded(request, today) ? ["decline"] : ["approve", "decline"];
     }
     if (request.status === "approved") return ["markReturned"];
   }

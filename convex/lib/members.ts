@@ -8,6 +8,10 @@ export function displayName(user: Doc<"users"> | null) {
   return user.name;
 }
 
+export function lenderOf(user: Doc<"users"> | null) {
+  return { name: displayName(user), trusted: user?.trustedLender ?? false };
+}
+
 // Emails aren't unique across rows: a Clerk account deleted and re-created
 // leaves an orphaned row with the same email. Promote them all, and hand back
 // the newest, which is the account signed in now.

@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import { sanitiseError } from "./automationFields";
+import { parseHttpUrl } from "./n8nClient";
 
 export const WORKFLOW_EVENTS = {
   executionFailed: "n8n.execution_failed",
@@ -11,17 +12,6 @@ export type WorkflowEvent =
   (typeof WORKFLOW_EVENTS)[keyof typeof WORKFLOW_EVENTS];
 
 const MAX_NAME = 120;
-
-// The URL is rendered as a link on the Admin page, so only http(s) gets through.
-function safeUrl(raw: string | undefined) {
-  if (!raw) return undefined;
-  try {
-    const url = new URL(raw);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 const shortText = (value: string | undefined) =>
   value?.trim().slice(0, MAX_NAME) || undefined;
@@ -53,7 +43,8 @@ export async function recordWorkflowError(
     lastError: sanitiseError(row.error) || "Unknown error",
     workflowName: shortText(row.workflowName),
     failedNode: shortText(row.failedNode),
-    executionUrl: safeUrl(row.executionUrl),
+    // Rendered as a link on the Admin page, so only http(s) gets through.
+    executionUrl: parseHttpUrl(row.executionUrl)?.href,
     updatedAt: Date.now(),
   });
   return "inserted" as const;

@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { sanitiseError } from "./lib/automationFields";
+import {
+  sanitiseError,
+  vWriteBackStatus,
+  writeBackError,
+} from "./lib/automationFields";
 import { appUrl, convexToN8nSecret, n8nNotifyWebhookUrl } from "./lib/env";
 import {
   internalAction,
@@ -8,7 +12,7 @@ import {
   internalQuery,
 } from "./lib/functions";
 import { deliveryIdOf } from "./lib/notifications";
-import { postSigned, webhookUrl } from "./lib/n8nClient";
+import { parseHttpUrl, postSigned } from "./lib/n8nClient";
 
 const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [30_000, 120_000, 600_000, 3_600_000];
@@ -97,7 +101,7 @@ export const deliver = internalAction({
         "Notifications are not configured: set N8N_NOTIFY_WEBHOOK_URL and CONVEX_TO_N8N_SECRET",
       );
     }
-    const url = webhookUrl(n8nNotifyWebhookUrl());
+    const url = parseHttpUrl(n8nNotifyWebhookUrl());
     if (!url) {
       return await record(
         "failed",
@@ -114,7 +118,15 @@ export const deliver = internalAction({
     });
     const res = await postSigned(url, secret, body);
     if ("error" in res) return await record("retry", res.error);
-    if (res.status >= 200 && res.status < 300) return await record("accepted");
+    if (res.status === 202) return await record("accepted");
+    // Only the workflow's dedupe path answers 202; any other 2xx means a
+    // request got past it unhandled, so retrying wouldn't help.
+    if (res.status >= 200 && res.status < 300) {
+      return await record(
+        "failed",
+        `n8n answered ${res.status} instead of 202: check the notify workflow's Respond 202 node`,
+      );
+    }
     return await record(
       res.status >= 500 ? "retry" : "failed",
       `n8n answered ${res.status}`,
@@ -170,7 +182,7 @@ export const recordDelivery = internalMutation({
 export const recordWriteBack = internalMutation({
   args: {
     eventId: v.string(),
-    status: v.union(v.literal("sent"), v.literal("failed")),
+    status: vWriteBackStatus,
     error: v.optional(v.string()),
   },
   handler: async (ctx, { eventId, status, error }) => {
@@ -182,10 +194,7 @@ export const recordWriteBack = internalMutation({
     }
     await ctx.db.patch("automationEvents", event._id, {
       status,
-      lastError:
-        status === "failed"
-          ? sanitiseError(error ?? "n8n could not send the email")
-          : undefined,
+      lastError: writeBackError(status, error),
       updatedAt: Date.now(),
     });
     return "updated" as const;

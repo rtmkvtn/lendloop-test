@@ -1,13 +1,21 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { appendAudit } from "./lib/audit";
-import { isStuck, STUCK_AFTER_MS } from "./lib/automationFields";
+import { type AutomationStatus, STUCK_AFTER_MS } from "./lib/automationFields";
+import {
+  isStuck,
+  KIND_POLICY,
+  policyOf,
+  RETRYABLE_KINDS,
+  type RetryableKind,
+} from "./lib/automationPolicy";
 import { availabilityOf } from "./lib/availability";
 import { todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { adminMutation, adminQuery } from "./lib/functions";
-import { displayName } from "./lib/members";
+import { displayName, lenderOf } from "./lib/members";
 import { queueToolRemovedNotification, subjectOf } from "./lib/notifications";
+import { overdueLoans } from "./lib/overdue";
 import { lastReminderRunAt } from "./lib/reminders";
 import { pendingRequestsOf, transitionRequest } from "./lib/requestLifecycle";
 import { requestRow } from "./lib/requestRows";
@@ -19,7 +27,7 @@ export const removeTool = adminMutation({
   args: { toolId: v.id("tools"), reason: v.string() },
   handler: async (ctx, args) => {
     const reason = args.reason.trim();
-    if (!reason) fail("INVALID", "Give a reason for removing this listing.");
+    if (!reason) fail("INVALID", "Give a reason for removing this Tool.");
     if (reason.length > REASON_MAX) {
       fail("INVALID", `Keep the reason to ${REASON_MAX} characters.`);
     }
@@ -49,24 +57,28 @@ export const removeTool = adminMutation({
 });
 
 const LOAN_STATUSES = ["approved", "returned"] as const;
+const LOAN_FILTERS = [...LOAN_STATUSES, "overdue"] as const;
 
 export const listLoans = adminQuery({
   args: {
-    status: v.optional(v.union(...LOAN_STATUSES.map((s) => v.literal(s)))),
+    status: v.optional(v.union(...LOAN_FILTERS.map((s) => v.literal(s)))),
   },
   handler: async (ctx, { status }) => {
-    const loans = (
-      await Promise.all(
-        (status ? [status] : LOAN_STATUSES).map((s) =>
-          ctx.db
-            .query("requests")
-            .withIndex("by_status_endDate", (q) => q.eq("status", s))
-            .collect(),
-        ),
-      )
-    ).flat();
-    loans.sort((a, b) => b._creationTime - a._creationTime);
     const today = todayInAppTimeZone();
+    const loans =
+      status === "overdue"
+        ? await overdueLoans(ctx, today).collect()
+        : (
+            await Promise.all(
+              (status ? [status] : LOAN_STATUSES).map((s) =>
+                ctx.db
+                  .query("requests")
+                  .withIndex("by_status_endDate", (q) => q.eq("status", s))
+                  .collect(),
+              ),
+            )
+          ).flat();
+    loans.sort((a, b) => b._creationTime - a._creationTime);
     return await Promise.all(
       loans.map((loan) => requestRow(ctx, loan, ctx.me._id, today)),
     );
@@ -96,38 +108,35 @@ export const listLenders = adminQuery({
       ctx.db.query("users").collect(),
       ctx.db.query("tools").collect(),
     ]);
-    const listings = new Map<string, number>();
+    const toolCounts = new Map<string, number>();
     for (const tool of tools) {
       if (tool.removedAt !== undefined) continue;
-      listings.set(tool.ownerId, (listings.get(tool.ownerId) ?? 0) + 1);
+      toolCounts.set(tool.ownerId, (toolCounts.get(tool.ownerId) ?? 0) + 1);
     }
     return users
       .map((user) => ({
         _id: user._id,
         name: displayName(user),
         trusted: user.trustedLender,
-        listings: listings.get(user._id) ?? 0,
+        tools: toolCounts.get(user._id) ?? 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
-export const listListings = adminQuery({
+export const listTools = adminQuery({
   args: {},
   handler: async (ctx) => {
     const tools = await ctx.db.query("tools").order("desc").collect();
     return await Promise.all(
       tools.map(async (tool) => {
-        const owner = await ctx.db.get("users", tool.ownerId);
+        const lender = await ctx.db.get("users", tool.ownerId);
         return {
           _id: tool._id,
           name: tool.name,
           category: tool.category,
           condition: tool.condition,
-          lender: {
-            name: displayName(owner),
-            trusted: owner?.trustedLender ?? false,
-          },
+          lender: lenderOf(lender),
           availability: await availabilityOf(ctx, tool),
           removed:
             tool.removedAt === undefined
@@ -146,41 +155,20 @@ export const retryEvent = adminMutation({
   handler: async (ctx, { eventId }) => {
     const event = await ctx.db.get("automationEvents", eventId);
     if (!event) fail("NOT_FOUND", "That event doesn't exist.");
-    if (event.kind === "workflow_error") {
+    const policy = policyOf(event.kind);
+    if (!policy) {
       fail("INVALID", "Workflow errors can't be retried; fix the cause.");
     }
     if (event.status !== "failed" && !isStuck(event)) {
       fail("CONFLICT", "Only failed or stuck events can be retried.");
     }
 
-    const common = {
-      status: "pending" as const,
+    await policy.retry(ctx, event, {
+      status: "pending",
       retryGeneration: (event.retryGeneration ?? 0) + 1,
       lastError: undefined,
       updatedAt: Date.now(),
-    };
-    if (event.kind === "reminder") {
-      const loan = event.requestId
-        ? await ctx.db.get("requests", event.requestId)
-        : null;
-      if (
-        !loan ||
-        loan.status !== "approved" ||
-        loan.endDate >= todayInAppTimeZone()
-      ) {
-        fail("CONFLICT", "That Loan is no longer Overdue.");
-      }
-      await ctx.db.patch("automationEvents", eventId, common);
-      await ctx.scheduler.runAfter(0, internal.reminders.triggerRun, {});
-    } else {
-      await ctx.db.patch("automationEvents", eventId, {
-        ...common,
-        attempts: 0,
-      });
-      await ctx.scheduler.runAfter(0, internal.notifications.deliver, {
-        eventId,
-      });
-    }
+    });
     await appendAudit(ctx, {
       actorId: ctx.me._id,
       action: "automation.retried",
@@ -198,10 +186,7 @@ export const automationHealth = adminQuery({
     const now = Date.now();
     const cutoff = now - STUCK_AFTER_MS;
     // Per kind, so a burst of workflow errors can't crowd failed emails out.
-    const byKindAndStatus = (
-      kind: "notification" | "reminder",
-      status: "failed" | "accepted" | "pending",
-    ) =>
+    const byKindAndStatus = (kind: RetryableKind, status: AutomationStatus) =>
       ctx.db
         .query("automationEvents")
         .withIndex("by_kind_status_updatedAt", (q) =>
@@ -213,8 +198,8 @@ export const automationHealth = adminQuery({
         .take(HEALTH_LIMIT);
     const candidates = (
       await Promise.all(
-        (["notification", "reminder"] as const).flatMap((kind) =>
-          (["failed", "accepted", "pending"] as const).map((status) =>
+        RETRYABLE_KINDS.flatMap((kind) =>
+          ["failed" as const, ...KIND_POLICY[kind].waitsAs].map((status) =>
             byKindAndStatus(kind, status),
           ),
         ),

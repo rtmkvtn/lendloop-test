@@ -33,58 +33,58 @@ type ToolSpec = {
   description: string;
 };
 
-const TOOLS: (ToolSpec & { owner: MemberKey })[] = [
+const TOOLS: (ToolSpec & { lender: MemberKey })[] = [
   {
-    owner: "priya",
+    lender: "priya",
     name: "Cordless drill",
     category: "power_tools",
     condition: "good",
     description: "18V with two batteries and a set of wood and masonry bits.",
   },
   {
-    owner: "tom",
+    lender: "tom",
     name: "Orbital sander",
     category: "power_tools",
     condition: "fair",
     description: "Works well; bring your own sanding discs (125 mm).",
   },
   {
-    owner: "lena",
+    lender: "lena",
     name: "Socket set",
     category: "hand_tools",
     condition: "good",
     description: "94 pieces, metric and imperial, in a carry case.",
   },
   {
-    owner: "marco",
+    lender: "marco",
     name: "Hedge trimmer",
     category: "garden",
     condition: "worn",
     description: "Electric, 55 cm blade. Needs a long extension cable.",
   },
   {
-    owner: "lena",
+    lender: "lena",
     name: "Stand mixer",
     category: "kitchen",
     condition: "new",
     description: "With dough hook, whisk and flat beater.",
   },
   {
-    owner: "tom",
+    lender: "tom",
     name: "Four-person tent",
     category: "camping",
     condition: "good",
     description: "Pitches in ten minutes. Footprint and pegs included.",
   },
   {
-    owner: "priya",
+    lender: "priya",
     name: "Carpet cleaner",
     category: "cleaning",
     condition: "fair",
     description: "Upright wet cleaner. Please empty the tank before returning.",
   },
   {
-    owner: "marco",
+    lender: "marco",
     name: "Extension ladder",
     category: "other",
     condition: "good",
@@ -134,8 +134,8 @@ async function ensureDemoMembers(ctx: MutationCtx): Promise<Members> {
   return ids;
 }
 
-const insertTool = (ctx: MutationCtx, ownerId: Id<"users">, tool: ToolSpec) =>
-  ctx.db.insert("tools", { ownerId, ...tool, demo: true });
+const insertTool = (ctx: MutationCtx, lenderId: Id<"users">, tool: ToolSpec) =>
+  ctx.db.insert("tools", { ownerId: lenderId, ...tool, demo: true });
 
 // Inserted as already sent: seeding must never email anyone.
 async function insertRequest(
@@ -201,8 +201,8 @@ async function seedBase(ctx: MutationCtx) {
 
   const members = await ensureDemoMembers(ctx);
   const tools: Record<string, Doc<"tools">> = {};
-  for (const { owner, ...spec } of TOOLS) {
-    const id = await insertTool(ctx, members[owner], spec);
+  for (const { lender, ...spec } of TOOLS) {
+    const id = await insertTool(ctx, members[lender], spec);
     tools[spec.name] = (await ctx.db.get("tools", id))!;
   }
 
@@ -306,8 +306,8 @@ export const demo = internalMutation({
     if (ownTools.some((tool) => tool.demo)) return { email, created: false };
 
     const members = await ensureDemoMembers(ctx);
-    const toolOf = async (ownerId: Id<"users">, spec: ToolSpec) =>
-      (await ctx.db.get("tools", await insertTool(ctx, ownerId, spec)))!;
+    const toolOf = async (lenderId: Id<"users">, spec: ToolSpec) =>
+      (await ctx.db.get("tools", await insertTool(ctx, lenderId, spec)))!;
 
     await insertRequest(ctx, {
       tool: await toolOf(reviewer._id, REVIEWER_TOOL),

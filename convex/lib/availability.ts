@@ -1,6 +1,7 @@
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { addDays, todayInAppTimeZone } from "./dates";
+import { isOverdue } from "./overdue";
 import { loansOf } from "./requestLifecycle";
 
 // Worked out when read, never stored.
@@ -18,7 +19,7 @@ export async function availabilityOf(
   const loans = await loansOf(ctx, tool._id);
 
   const overdue = loans
-    .filter((loan) => loan.endDate < today)
+    .filter((loan) => isOverdue(loan, today))
     .map((loan) => loan.endDate)
     .sort()[0];
   if (overdue) return { kind: "overdue", since: addDays(overdue, 1) };
