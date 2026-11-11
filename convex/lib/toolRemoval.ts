@@ -1,5 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { appendAudit } from "./audit";
+import { TOOL_REMOVED_EVENT } from "./automationFields";
 import { pendingRequestsOf, transitionRequest } from "./requestLifecycle";
 
 // A pending Request is auto-declined when its Tool is removed (GLOSSARY).
@@ -19,5 +21,10 @@ export async function removeFromBoard(
     removedAt: Date.now(),
     removedBy: by.actorId,
     ...(by.reason === undefined ? {} : { removalReason: by.reason }),
+  });
+  await appendAudit(ctx, {
+    actorId: by.actorId,
+    action: TOOL_REMOVED_EVENT,
+    target: tool._id,
   });
 }

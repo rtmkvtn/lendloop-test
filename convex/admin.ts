@@ -38,11 +38,6 @@ export const removeTool = adminMutation({
     }
 
     await removeFromBoard(ctx, tool, { actorId: ctx.me._id, reason });
-    await appendAudit(ctx, {
-      actorId: ctx.me._id,
-      action: "tool.removed",
-      target: tool._id,
-    });
     await queueToolRemovedNotification(ctx, tool);
   },
 });

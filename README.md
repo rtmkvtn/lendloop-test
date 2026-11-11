@@ -228,7 +228,7 @@ Schema: [`convex/schema.ts`](convex/schema.ts).
 | `requests`         | `toolId`, `borrowerId`, `lenderId` (copied from the Tool), `startDate`/`endDate` (`YYYY-MM-DD`), `status`, `decidedAt`, `returnedAt`, `cancelledAt`; no free text                   |
 | `automationEvents` | One row per Notification, Reminder or workflow error: `kind`, `event`, unique `idempotencyKey`, `status` (`pending → accepted → sent \| failed`), `attempts`, sanitised `lastError` |
 | `automationState`  | `lastReminderRunAt`, so a dead n8n schedule is visible from Convex                                                                                                                  |
-| `auditLog`         | Append-only: `actorId`, `action`, `target`, `at` for every Request transition and Admin action                                                                                      |
+| `auditLog`         | Append-only: `actorId`, `action`, `target`, `at` for every Request transition, Tool removal (Lender or Admin) and Admin action                                                      |
 
 Category (`power_tools | hand_tools | garden | kitchen | camping | cleaning | other`) and Condition
 (`new | good | fair | worn`) are fixed unions defined once in `convex/lib/toolFields.ts` and shared
@@ -285,21 +285,21 @@ Clerk proves identity; Convex decides everything else ([ADR 0004](docs/adr/0004-
 - **UI hides, Convex decides.** The sidebar hides Admin for Members and each row shows only the
   actions valid for its status, but the same checks run on the server.
 
-| Function                                                      | Who may call it           | Rule                                                                                                                               |
-| ------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                       |
-| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                              |
-| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                 |
-| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                               |
-| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                 |
-| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` while an approved Loan is running or upcoming; pending Requests are auto-declined                           |
-| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                   |
-| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                       |
-| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                       |
-| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                 |
-| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                    |
-| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Tools, set Trusted Lender, retry an event, run reminders now |
-| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                               |
+| Function                                                      | Who may call it           | Rule                                                                                                                                |
+| ------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                        |
+| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                               |
+| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                  |
+| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                                |
+| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                  |
+| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` while an approved Loan is running or upcoming; pending Requests are auto-declined; audited as `tool.removed` |
+| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                    |
+| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                        |
+| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                        |
+| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                  |
+| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                     |
+| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Tools, set Trusted Lender, retry an event, run reminders now  |
+| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                                |
 
 **Beyond the spec's function list.** A few functions and fields exist that the spec doesn't name:
 `requests.countPendingIncoming` (the sidebar badge on Incoming), `admin.listLenders` (the Lenders
