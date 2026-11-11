@@ -6,7 +6,7 @@ Borrow what you need. Lend what you don't.
 
 LendLoop is a neighbourhood tool-lending board. Members list the Tools they own, borrow other
 Members' Tools for a date range, and get an email whenever a Request they are part of changes.
-Borrowers whose Loan is Overdue get a daily Reminder. Admins moderate listings, oversee Loans, mark
+Borrowers whose Loan is Overdue get a daily Reminder. Admins moderate Tools, oversee Loans, mark
 Trusted Lenders and watch an Automation health panel where every failed email or workflow run shows
 up and can be retried.
 
@@ -282,21 +282,30 @@ Clerk proves identity; Convex decides everything else ([ADR 0004](docs/adr/0004-
 - **UI hides, Convex decides.** The sidebar hides Admin for Members and each row shows only the
   actions valid for its status, but the same checks run on the server.
 
-| Function                                                      | Who may call it           | Rule                                                                                                                                  |
-| ------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                          |
-| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                                 |
-| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                    |
-| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                                  |
-| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                    |
-| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` during an unreturned Loan ("Mark the loan returned first"); pending Requests are auto-declined                 |
-| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                      |
-| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                          |
-| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                          |
-| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                    |
-| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                       |
-| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Listings, set Trusted Lender, retry an event, run reminders now |
-| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                                  |
+| Function                                                      | Who may call it           | Rule                                                                                                                               |
+| ------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                       |
+| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                              |
+| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                 |
+| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                               |
+| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                 |
+| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` while an approved Loan is running or upcoming; pending Requests are auto-declined                           |
+| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                   |
+| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                       |
+| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                       |
+| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                 |
+| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                    |
+| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Tools, set Trusted Lender, retry an event, run reminders now |
+| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                               |
+
+**Beyond the spec's function list.** A few functions and fields exist that the spec doesn't name:
+`requests.countPendingIncoming` (the sidebar badge on Incoming), `admin.listLenders` (the Lenders
+table with Tool counts), `admin.listTools` (every Tool, removed ones included, for the Admin Tools
+table), `admin.automationHealth` (the Automation health panel) and the Overdue filter on
+`admin.listLoans`. The schema adds the `automationState` table (the last Reminder run),
+`users.by_email` (for `npm run promote`), and on `automationEvents` the `recipientId`, `toolId`
+(Tool-level Notifications), `retryGeneration` (Admin retries) and the workflow-error fields
+`workflowName`, `failedNode` and `executionUrl`.
 
 The full matrix (each function × signed out, other Member, party, Admin) is table-driven in
 [`convex/tools.test.ts`](convex/tools.test.ts), [`convex/requests.test.ts`](convex/requests.test.ts)
@@ -336,8 +345,9 @@ Replays inside the 300 s window pass the signature check, so every write is idem
 ### Retries
 
 - **Convex → n8n delivery:** 202 → `accepted`. 5xx, network error or a 10 s timeout → retried after
-  30 s, 2 min, 10 min and 1 h, then `failed` after 5 attempts. Any other 4xx (including 401) →
-  `failed` at once, because it's a configuration error.
+  30 s, 2 min, 10 min and 1 h, then `failed` after 5 attempts. Any 4xx (including 401) or any other
+  2xx → `failed` at once, because it's a configuration error: the workflow answers 202 from its
+  dedupe path, so a 200 or 204 means a request got past it.
 - **n8n email nodes:** Retry On Fail 3 × 5 s. A failed Reminder email is written back as `failed`
   and the loop carries on with the next Borrower (one Loan per iteration, so a node retry never
   re-sends to others).
@@ -351,7 +361,7 @@ Replays inside the 300 s window pass the signature check, so every write is idem
 No automation fails silently.
 
 - **Members** see a failed Notification or Reminder in red on the Request's activity line and in its
-  drawer ("Request email to lender failed, retrying", "Reminder failed").
+  drawer ("Request email to lender failed 2 days ago · retrying", "Reminder failed").
 - **Error Workflow** (`LendLoop: error handler`, `n8n/workflows/error.json`) is the
   `settings.errorWorkflow` of both workflows, and it must be published or n8n refuses to call it.
   For every failed production run it emails `ADMIN_ALERT_EMAIL` (default `alerts@lendloop.local`, in
@@ -360,7 +370,9 @@ No automation fails silently.
   `workflow_error`. The alert address reaches the workflow as a `${ADMIN_ALERT_EMAIL}` placeholder
   that `entrypoint.sh` renders at start; `npm run n8n:export` puts the placeholder back.
 - **Stuck events:** an hourly Convex cron (`:17` UTC) marks events `failed` with "No confirmation
-  from n8n" once they have waited over 30 minutes for n8n's write-back.
+  from n8n" once they have waited over 30 minutes for n8n's write-back. That covers `accepted` Notifications
+  and also retried Reminders still `pending`, because a retried Reminder has no Convex-side
+  delivery and waits as `pending`.
 - **Missed run:** Convex crons are UTC-only, so an hourly cron (`:05` UTC) checks whether it's past
   10:00 in `APP_TIMEZONE`. If any Loan is Overdue and the last Reminder run wasn't today, it records
   a "Reminder run missed" `workflow_error`, once per day.
@@ -427,8 +439,8 @@ No automation fails silently.
 - **Dev-dependency advisories.** `npm audit` reports moderate issues in `deepmerge` (via the
   `shadcn` CLI) and `minimatch` (via `typescript-eslint`). Neither ships in the app; CI fails on
   high or critical advisories in runtime dependencies.
-- **Per-row reads in Admin and Request queries.** `listListings`, `listLoans` and the Request rows
-  read owner, Tool and events row by row. That is fine at neighbourhood scale; a bigger deployment
+- **Per-row reads in Admin and Request queries.** `listTools`, `listLoans` and the Request rows
+  read the Lender, Tool and events row by row. That is fine at neighbourhood scale; a bigger deployment
   would denormalise display names.
 
 ## 9. Data minimisation
@@ -438,7 +450,7 @@ No automation fails silently.
 | Signed out           | `name` and `category` of Available Tools. Built field by field; a test checks those are the only keys         |
 | Member on the board  | Tool name, Category, Condition, description, Lender display name, Trusted badge, availability. Never an email |
 | Parties to a Request | The other party's display name, the dates, status and the activity timeline. Never the other party's email    |
-| Admin                | Every Loan, Lender and listing with display names. No emails in the UI either                                 |
+| Admin                | Every Loan, Lender and Tool with display names. No emails in the UI either                                    |
 | You                  | Your own name, email and role (`users.me`)                                                                    |
 
 If Clerk sends no name, the stored name falls back to the email, and every query then shows
