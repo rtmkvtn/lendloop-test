@@ -1,6 +1,10 @@
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
+import {
+  WRITE_BACK_STATUSES,
+  type WriteBackStatus,
+} from "./lib/automationFields";
 import { n8nToConvexSecret } from "./lib/env";
 import { httpAction } from "./lib/functions";
 import { verifyRequest } from "./lib/signature";
@@ -36,21 +40,27 @@ function parseObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-function parseWriteBack(raw: string) {
+function parseWriteBack<K extends "eventId" | "reminderKey">(
+  raw: string,
+  key: K,
+) {
   const body = parseObject(raw);
   if (!body) return null;
-  const { eventId, status, error } = body;
-  if (typeof eventId !== "string" || !eventId) return null;
-  if (status !== "sent" && status !== "failed") return null;
+  const { [key]: id, status, error } = body;
+  if (typeof id !== "string" || !id) return null;
+  if (!WRITE_BACK_STATUSES.includes(status as WriteBackStatus)) return null;
   if (error !== undefined && typeof error !== "string") return null;
-  return { eventId, status, error } as const;
+  return { [key]: id, status, error } as Record<K, string> & {
+    status: WriteBackStatus;
+    error: string | undefined;
+  };
 }
 
 http.route({
   path: "/automation/notifications",
   method: "POST",
   handler: signedRoute(async (ctx, body) => {
-    const writeBack = parseWriteBack(body);
+    const writeBack = parseWriteBack(body, "eventId");
     if (!writeBack) return json(400, { error: "invalid body" });
     const result = await ctx.runMutation(
       internal.notifications.recordWriteBack,
@@ -60,16 +70,6 @@ http.route({
     return json(200, { ok: true, result });
   }),
 });
-
-function parseReminderWriteBack(raw: string) {
-  const body = parseObject(raw);
-  if (!body) return null;
-  const { reminderKey, status, error } = body;
-  if (typeof reminderKey !== "string" || !reminderKey) return null;
-  if (status !== "sent" && status !== "failed") return null;
-  if (error !== undefined && typeof error !== "string") return null;
-  return { reminderKey, status, error } as const;
-}
 
 http.route({
   path: "/automation/overdue-loans",
@@ -83,7 +83,7 @@ http.route({
   path: "/automation/reminders",
   method: "POST",
   handler: signedRoute(async (ctx, body) => {
-    const writeBack = parseReminderWriteBack(body);
+    const writeBack = parseWriteBack(body, "reminderKey");
     if (!writeBack) return json(400, { error: "invalid body" });
     const result = await ctx.runMutation(
       internal.reminders.recordWriteBack,

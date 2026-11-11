@@ -96,7 +96,7 @@ export function activityOf(event: Doc<"automationEvents">) {
   const subject = subjectOf(event);
   const retrying = event.status === "pending" && event.attempts > 0;
   const phrase = retrying
-    ? "failed, retrying"
+    ? "failed"
     : {
         pending: "queued",
         accepted: "handed to n8n",
@@ -107,6 +107,8 @@ export function activityOf(event: Doc<"automationEvents">) {
     label: `${subject} ${phrase}`,
     at: event.updatedAt,
     failed: retrying || event.status === "failed",
+    // Shown after the time, so it reads "failed 2 days ago · retrying".
+    ...(retrying ? { detail: "retrying" } : {}),
   };
 }
 

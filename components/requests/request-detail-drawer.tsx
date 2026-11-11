@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { activityText } from "@/lib/activity";
 import { formatMoment, formatRange } from "@/lib/dates";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -102,7 +103,7 @@ function RequestDetail({ requestId }: { requestId: Id<"requests"> }) {
                   )}
                 />
                 <div className={cn(entry.failed && "text-destructive")}>
-                  {entry.label}
+                  {activityText(entry)}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {formatMoment(entry.at)}

@@ -3,7 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { availabilityOf } from "./lib/availability";
 import { fail } from "./lib/errors";
-import { displayName } from "./lib/members";
+import { lenderOf } from "./lib/members";
 import {
   loansOf,
   pendingRequestsOf,
@@ -73,17 +73,14 @@ export const listBoard = memberQuery({
 
     return await Promise.all(
       tools.map(async (tool) => {
-        const owner = await ctx.db.get("users", tool.ownerId);
+        const lender = await ctx.db.get("users", tool.ownerId);
         return {
           _id: tool._id,
           name: tool.name,
           category: tool.category,
           condition: tool.condition,
           description: tool.description,
-          lender: {
-            name: displayName(owner),
-            trusted: owner?.trustedLender ?? false,
-          },
+          lender: lenderOf(lender),
           isMine: tool.ownerId === ctx.me._id,
           availability: await availabilityOf(ctx, tool),
         };
@@ -155,7 +152,10 @@ export const remove = memberMutation({
   handler: async (ctx, { toolId }) => {
     await loadOwnTool(ctx, toolId);
     if ((await loansOf(ctx, toolId)).length > 0) {
-      fail("CONFLICT", "Mark the loan returned first");
+      fail(
+        "CONFLICT",
+        "This Tool has an active or upcoming Loan: mark it returned, or wait until it ends.",
+      );
     }
     for (const request of await pendingRequestsOf(ctx, toolId)) {
       await transitionRequest(ctx, request, "declined", {

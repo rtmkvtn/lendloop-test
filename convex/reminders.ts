@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { sanitiseError } from "./lib/automationFields";
+import { vWriteBackStatus, writeBackError } from "./lib/automationFields";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { convexToN8nSecret, n8nRemindersWebhookUrl } from "./lib/env";
 import { internalAction, internalMutation } from "./lib/functions";
-import { postSigned, webhookUrl } from "./lib/n8nClient";
+import { parseHttpUrl, postSigned } from "./lib/n8nClient";
+import { overdueLoans as overdueLoansQuery } from "./lib/overdue";
 import {
   parseReminderKey,
   REMINDER_EVENT,
@@ -31,12 +32,7 @@ export const overdueLoans = internalMutation({
       });
     }
 
-    const overdue = await ctx.db
-      .query("requests")
-      .withIndex("by_status_endDate", (q) =>
-        q.eq("status", "approved").lt("endDate", asOf),
-      )
-      .collect();
+    const overdue = await overdueLoansQuery(ctx, asOf).collect();
     const loans = [];
     for (const loan of overdue) {
       const reminderKey = reminderKeyOf(loan._id, asOf);
@@ -69,7 +65,7 @@ export const overdueLoans = internalMutation({
 export const recordWriteBack = internalMutation({
   args: {
     reminderKey: v.string(),
-    status: v.union(v.literal("sent"), v.literal("failed")),
+    status: vWriteBackStatus,
     error: v.optional(v.string()),
   },
   handler: async (ctx, { reminderKey, status, error }) => {
@@ -80,10 +76,7 @@ export const recordWriteBack = internalMutation({
       return "invalid" as const;
     }
 
-    const lastError =
-      status === "failed"
-        ? sanitiseError(error ?? "n8n could not send the email")
-        : undefined;
+    const lastError = writeBackError(status, error);
     const updatedAt = Date.now();
     const existing = await ctx.db
       .query("automationEvents")
@@ -121,7 +114,7 @@ async function startRun(): Promise<string | null> {
   if (!n8nRemindersWebhookUrl() || !secret) {
     return "Reminders are not configured: set N8N_REMINDERS_WEBHOOK_URL and CONVEX_TO_N8N_SECRET";
   }
-  const url = webhookUrl(n8nRemindersWebhookUrl());
+  const url = parseHttpUrl(n8nRemindersWebhookUrl());
   if (!url) {
     return "Reminders are not configured: N8N_REMINDERS_WEBHOOK_URL is not an http(s) URL";
   }

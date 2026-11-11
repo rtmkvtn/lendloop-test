@@ -253,6 +253,23 @@ describe("delivery to n8n", () => {
     ).toMatchObject({ status: "accepted", attempts: 1 });
   });
 
+  test.each([200, 204])(
+    "%i fails the event at once, because only the dedupe path answers 202",
+    async (status) => {
+      respond = async () => new Response(null, { status });
+      const { t, requestId } = await circle();
+      await runScheduled(t);
+      expect(calls).toHaveLength(1);
+      expect(
+        await eventFor(t, `notify:${requestId}:request.created`),
+      ).toMatchObject({
+        status: "failed",
+        attempts: 1,
+        lastError: `n8n answered ${status} instead of 202: check the notify workflow's Respond 202 node`,
+      });
+    },
+  );
+
   test("a repeated event id gives one delivery", async () => {
     const { t, requestId } = await circle();
     await runScheduled(t);
@@ -539,14 +556,16 @@ describe("activity", () => {
     await t.finishInProgressScheduledFunctions();
     const [row] = await ben.as.query(api.requests.listMine, {});
     expect(row?.activity).toMatchObject({
-      label: "Request email to lender failed, retrying",
+      label: "Request email to lender failed",
+      detail: "retrying",
       failed: true,
     });
 
     await runScheduled(t);
     const [after] = await ben.as.query(api.requests.listMine, {});
-    expect(after?.activity).toMatchObject({
+    expect(after?.activity).toEqual({
       label: "Request email to lender failed",
+      at: expect.any(Number),
       failed: true,
     });
   });

@@ -358,13 +358,16 @@ describe("requests.approve", () => {
 });
 
 describe("tools.remove with Requests", () => {
+  const ACTIVE_LOAN =
+    "This Tool has an active or upcoming Loan: mark it returned, or wait until it ends.";
+
   test("returns CONFLICT while an unreturned Loan exists, and works once it is returned", async () => {
     const c = await withPendingRequest();
     await run(c, "approve");
     await expect(
       c.anna.as.mutation(api.tools.remove, { toolId: c.toolId }),
     ).rejects.toMatchObject({
-      data: { code: "CONFLICT", message: "Mark the loan returned first" },
+      data: { code: "CONFLICT", message: ACTIVE_LOAN },
     });
     await run(c, "markReturned");
     await c.anna.as.mutation(api.tools.remove, { toolId: c.toolId });

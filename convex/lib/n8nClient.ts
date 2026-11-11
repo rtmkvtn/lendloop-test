@@ -2,7 +2,7 @@ import { signedHeaders } from "./signature";
 
 const TIMEOUT_MS = 10_000;
 
-export function webhookUrl(raw: string | undefined): URL | null {
+export function parseHttpUrl(raw: string | undefined): URL | null {
   if (!raw) return null;
   try {
     const url = new URL(raw);

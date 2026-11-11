@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { activityText } from "@/lib/activity";
 import { formatRange, relativeDay } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { RequestActions, RequestStatusBadge } from "./request-actions";
@@ -84,7 +85,7 @@ export function RequestTable({
                         : "text-muted-foreground",
                     )}
                   >
-                    {row.activity.label} {relativeDay(row.activity.at)}
+                    {activityText(row.activity, relativeDay(row.activity.at))}
                   </div>
                 )}
               </TableCell>

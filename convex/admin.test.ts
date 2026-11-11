@@ -86,6 +86,18 @@ describe("admin.removeTool", () => {
     expect(await auditRows(t)).toEqual([]);
   });
 
+  test("asks for a reason in Tool vocabulary", async () => {
+    const { omar, toolId } = await board();
+    await expect(
+      omar.as.mutation(api.admin.removeTool, { toolId, reason: " " }),
+    ).rejects.toMatchObject({
+      data: {
+        code: "INVALID",
+        message: "Give a reason for removing this Tool.",
+      },
+    });
+  });
+
   test("returns NOT_FOUND for a Tool that is already removed", async () => {
     const { omar, toolId } = await board();
     await omar.as.mutation(api.admin.removeTool, { toolId, reason: REASON });
@@ -242,6 +254,41 @@ describe("admin.listLoans", () => {
     expect(loans.map((l) => l._id)).toEqual([c[key]]);
   });
 
+  test("filters to Overdue Loans: approved and past their end date", async () => {
+    vi.setSystemTime(new Date("2026-11-05T12:00:00Z"));
+    const c = await board();
+    const loan = async (
+      name: string,
+      who: typeof c.ben,
+      startDate: string,
+      endDate: string,
+    ) => {
+      const toolId = await c.anna.as.mutation(api.tools.create, {
+        ...drill,
+        name,
+      });
+      const requestId = await who.as.mutation(api.requests.create, {
+        toolId,
+        startDate,
+        endDate,
+      });
+      await c.anna.as.mutation(api.requests.approve, { requestId });
+      return requestId;
+    };
+    const overdueId = await loan("Ladder", c.ben, "2026-11-06", "2026-11-08");
+    await loan("Saw", c.cara, "2026-11-06", "2026-11-12");
+    const returnedId = await loan("Rake", c.cara, "2026-11-06", "2026-11-08");
+    await c.anna.as.mutation(api.requests.markReturned, {
+      requestId: returnedId,
+    });
+    vi.setSystemTime(new Date("2026-11-10T12:00:00Z"));
+
+    const loans = await c.omar.as.query(api.admin.listLoans, {
+      status: "overdue",
+    });
+    expect(loans.map((l) => [l._id, l.overdue])).toEqual([[overdueId, true]]);
+  });
+
   test("rejects a status that is not a Loan status", async () => {
     const { omar } = await withLoans();
     await expect(
@@ -277,21 +324,21 @@ describe("admin.setTrustedLender", () => {
 });
 
 describe("admin.listLenders", () => {
-  test("lists every Member with their Trusted flag and listing count", async () => {
+  test("lists every Member with their Trusted flag and Tool count", async () => {
     const { anna, omar } = await board();
     await anna.as.mutation(api.tools.create, { ...drill, name: "Ladder" });
     const lenders = await omar.as.query(api.admin.listLenders, {});
     expect(lenders).toEqual([
-      { _id: anna.userId, name: "Anna Lee", trusted: false, listings: 2 },
-      expect.objectContaining({ name: "Ben Ortiz", listings: 0 }),
-      expect.objectContaining({ name: "Cara Novak", listings: 0 }),
-      expect.objectContaining({ name: "Omar Haddad", listings: 0 }),
+      { _id: anna.userId, name: "Anna Lee", trusted: false, tools: 2 },
+      expect.objectContaining({ name: "Ben Ortiz", tools: 0 }),
+      expect.objectContaining({ name: "Cara Novak", tools: 0 }),
+      expect.objectContaining({ name: "Omar Haddad", tools: 0 }),
     ]);
     expect(JSON.stringify(lenders)).not.toContain("@");
   });
 });
 
-describe("admin.listListings", () => {
+describe("admin.listTools", () => {
   test("lists every Tool, including removed ones with their reason", async () => {
     const { anna, omar, toolId } = await board();
     const ladderId = await anna.as.mutation(api.tools.create, {
@@ -299,7 +346,7 @@ describe("admin.listListings", () => {
       name: "Ladder",
     });
     await omar.as.mutation(api.admin.removeTool, { toolId, reason: REASON });
-    expect(await omar.as.query(api.admin.listListings, {})).toEqual([
+    expect(await omar.as.query(api.admin.listTools, {})).toEqual([
       expect.objectContaining({
         _id: ladderId,
         name: "Ladder",
@@ -337,7 +384,7 @@ describe("RBAC", () => {
         trusted: true,
       }),
     listLenders: (as) => as.query(api.admin.listLenders, {}),
-    listListings: (as) => as.query(api.admin.listListings, {}),
+    listTools: (as) => as.query(api.admin.listTools, {}),
     runRemindersNow: (as) => as.mutation(api.admin.runRemindersNow, {}),
     retryEvent: async (as, c) => {
       const eventId = await c.t.run((ctx) =>

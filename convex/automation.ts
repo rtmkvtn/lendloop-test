@@ -1,7 +1,9 @@
 import { v } from "convex/values";
-import { isStuck, STUCK_AFTER_MS } from "./lib/automationFields";
+import { STUCK_AFTER_MS } from "./lib/automationFields";
+import { isStuck } from "./lib/automationPolicy";
 import { hourInAppTimeZone, todayInAppTimeZone } from "./lib/dates";
 import { internalMutation } from "./lib/functions";
+import { overdueLoans } from "./lib/overdue";
 import { lastReminderRunAt } from "./lib/reminders";
 import { recordWorkflowError, WORKFLOW_EVENTS } from "./lib/workflowErrors";
 
@@ -74,12 +76,7 @@ export const checkMissedReminderRun = internalMutation({
     const today = todayInAppTimeZone(now);
     const lastRun = await lastReminderRunAt(ctx);
     if (lastRun !== null && todayInAppTimeZone(lastRun) === today) return;
-    const overdue = await ctx.db
-      .query("requests")
-      .withIndex("by_status_endDate", (q) =>
-        q.eq("status", "approved").lt("endDate", today),
-      )
-      .first();
+    const overdue = await overdueLoans(ctx, today).first();
     if (!overdue) return;
     await recordWorkflowError(ctx, {
       idempotencyKey: `workflow_error:missed_run:${today}`,

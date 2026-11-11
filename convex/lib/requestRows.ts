@@ -1,7 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { displayName } from "./members";
+import { displayName, lenderOf } from "./members";
 import { activityOf, automationEventsOf } from "./notifications";
+import { isOverdue } from "./overdue";
 import { allowedActions } from "./requestLifecycle";
 
 export async function requestRow(
@@ -23,15 +24,12 @@ export async function requestRow(
     status: request.status,
     startDate: request.startDate,
     endDate: request.endDate,
-    overdue: request.status === "approved" && request.endDate < today,
+    overdue: isOverdue(request, today),
     tool: {
       name: tool?.name ?? "A removed Tool",
       removed: !tool || tool.removedAt !== undefined,
     },
-    lender: {
-      name: displayName(lender),
-      trusted: lender?.trustedLender ?? false,
-    },
+    lender: lenderOf(lender),
     borrower: { name: displayName(borrower) },
     actions: allowedActions(request, viewerId, today),
     activity: latest ? activityOf(latest) : null,
