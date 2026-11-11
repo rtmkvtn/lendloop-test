@@ -128,4 +128,12 @@
   html {
     @apply font-sans;
   }
+  /* Tailwind v4 preflight resets buttons to cursor: default. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  label[for],
+  summary {
+    @apply cursor-pointer;
+  }
 }
