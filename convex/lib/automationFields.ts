@@ -28,6 +28,8 @@ export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
 export const TOOL_REMOVED_EVENT = "tool.removed";
 
+export const REMINDER_EVENT = "reminder.overdue";
+
 export const vAutomationKind = v.union(
   ...AUTOMATION_KINDS.map((k) => v.literal(k)),
 );

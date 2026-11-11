@@ -52,6 +52,10 @@ export type RetryableKind = keyof typeof KIND_POLICY;
 
 export const RETRYABLE_KINDS = Object.keys(KIND_POLICY) as RetryableKind[];
 
+export const WAITING_STATUSES = [
+  ...new Set(RETRYABLE_KINDS.flatMap((kind) => KIND_POLICY[kind].waitsAs)),
+];
+
 export function policyOf(kind: Event["kind"]): KindPolicy | null {
   return kind in KIND_POLICY ? KIND_POLICY[kind as RetryableKind] : null;
 }

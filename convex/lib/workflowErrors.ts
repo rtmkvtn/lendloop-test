@@ -1,4 +1,5 @@
 import type { MutationCtx } from "../_generated/server";
+import { eventByKey } from "./automationEvents";
 import { sanitiseError } from "./automationFields";
 import { parseHttpUrl } from "./n8nClient";
 
@@ -27,13 +28,7 @@ export async function recordWorkflowError(
     executionUrl?: string;
   },
 ) {
-  const existing = await ctx.db
-    .query("automationEvents")
-    .withIndex("by_idempotency_key", (q) =>
-      q.eq("idempotencyKey", row.idempotencyKey),
-    )
-    .first();
-  if (existing) return "duplicate" as const;
+  if (await eventByKey(ctx, row.idempotencyKey)) return "duplicate" as const;
   await ctx.db.insert("automationEvents", {
     kind: "workflow_error",
     event: row.event,

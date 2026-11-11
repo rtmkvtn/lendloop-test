@@ -1,47 +1,34 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { vWriteBackStatus, writeBackError } from "./lib/automationFields";
+import {
+  eventByKey,
+  eventKeys,
+  parseReminderKey,
+  recordReminderRun,
+} from "./lib/automationEvents";
+import {
+  REMINDER_EVENT,
+  vWriteBackStatus,
+  writeBackError,
+} from "./lib/automationFields";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { convexToN8nSecret, n8nRemindersWebhookUrl } from "./lib/env";
 import { internalAction, internalMutation } from "./lib/functions";
 import { parseHttpUrl, postSigned } from "./lib/n8nClient";
 import { overdueLoans as overdueLoansQuery } from "./lib/overdue";
-import {
-  parseReminderKey,
-  REMINDER_EVENT,
-  reminderKeyOf,
-} from "./lib/reminders";
 
 export const overdueLoans = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
     const asOf = todayInAppTimeZone(now);
-    const state = await ctx.db
-      .query("automationState")
-      .withIndex("by_key", (q) => q.eq("key", "reminders"))
-      .unique();
-    if (state) {
-      await ctx.db.patch("automationState", state._id, {
-        lastReminderRunAt: now,
-      });
-    } else {
-      await ctx.db.insert("automationState", {
-        key: "reminders",
-        lastReminderRunAt: now,
-      });
-    }
+    await recordReminderRun(ctx, now);
 
     const overdue = await overdueLoansQuery(ctx, asOf).collect();
     const loans = [];
     for (const loan of overdue) {
-      const reminderKey = reminderKeyOf(loan._id, asOf);
-      const reminder = await ctx.db
-        .query("automationEvents")
-        .withIndex("by_idempotency_key", (q) =>
-          q.eq("idempotencyKey", reminderKey),
-        )
-        .first();
+      const reminderKey = eventKeys.reminder(loan._id, asOf);
+      const reminder = await eventByKey(ctx, reminderKey);
       if (reminder?.status === "sent") continue;
       const [borrower, tool] = await Promise.all([
         ctx.db.get("users", loan.borrowerId),
@@ -78,12 +65,7 @@ export const recordWriteBack = internalMutation({
 
     const lastError = writeBackError(status, error);
     const updatedAt = Date.now();
-    const existing = await ctx.db
-      .query("automationEvents")
-      .withIndex("by_idempotency_key", (q) =>
-        q.eq("idempotencyKey", reminderKey),
-      )
-      .first();
+    const existing = await eventByKey(ctx, reminderKey);
     if (!existing) {
       await ctx.db.insert("automationEvents", {
         requestId: loan._id,

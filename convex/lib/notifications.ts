@@ -1,8 +1,12 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { type NotificationEvent, TOOL_REMOVED_EVENT } from "./automationFields";
-import { REMINDER_EVENT } from "./reminders";
+import {
+  type NotificationEvent,
+  REMINDER_EVENT,
+  TOOL_REMOVED_EVENT,
+} from "./automationFields";
+import { eventByKey, eventKeys } from "./automationEvents";
 
 type EmailEvent = NotificationEvent | typeof TOOL_REMOVED_EVENT;
 type Audience = "lender" | "borrower";
@@ -75,7 +79,7 @@ export async function queueNotification(
   event: NotificationEvent,
 ) {
   return await enqueue(ctx, {
-    idempotencyKey: `notify:${request._id}:${event}`,
+    idempotencyKey: eventKeys.notification(request._id, event),
     requestId: request._id,
     event,
     recipientId: recipientOf(request, event),
@@ -87,7 +91,7 @@ export async function queueToolRemovedNotification(
   tool: Pick<Doc<"tools">, "_id" | "ownerId">,
 ) {
   return await enqueue(ctx, {
-    idempotencyKey: `notify:${tool._id}:${TOOL_REMOVED_EVENT}`,
+    idempotencyKey: eventKeys.notification(tool._id, TOOL_REMOVED_EVENT),
     toolId: tool._id,
     event: TOOL_REMOVED_EVENT,
     recipientId: tool.ownerId,
@@ -104,13 +108,7 @@ async function enqueue(
     recipientId: Id<"users">;
   },
 ) {
-  const { idempotencyKey } = row;
-  const existing = await ctx.db
-    .query("automationEvents")
-    .withIndex("by_idempotency_key", (q) =>
-      q.eq("idempotencyKey", idempotencyKey),
-    )
-    .first();
+  const existing = await eventByKey(ctx, row.idempotencyKey);
   if (existing) return existing._id;
 
   const eventId = await ctx.db.insert("automationEvents", {

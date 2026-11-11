@@ -1,13 +1,13 @@
 import { v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import type { NotificationEvent } from "./lib/automationFields";
+import { eventKeys } from "./lib/automationEvents";
+import { type NotificationEvent, REMINDER_EVENT } from "./lib/automationFields";
 import { addDays, todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
 import { internalMutation } from "./lib/functions";
 import { promoteByEmail } from "./lib/members";
 import { recipientOf } from "./lib/notifications";
-import { REMINDER_EVENT, reminderKeyOf } from "./lib/reminders";
 import type { Category, Condition } from "./lib/toolFields";
 import schema from "./schema";
 
@@ -185,7 +185,7 @@ async function insertRequest(
       requestId,
       kind: "notification",
       event,
-      idempotencyKey: `notify:${requestId}:${event}`,
+      idempotencyKey: eventKeys.notification(requestId, event),
       recipientId: recipientOf(request, event),
       status: "sent",
       attempts: 1,
@@ -233,7 +233,7 @@ async function seedBase(ctx: MutationCtx) {
     requestId: overdueId,
     kind: "reminder",
     event: REMINDER_EVENT,
-    idempotencyKey: reminderKeyOf(overdueId, yesterday),
+    idempotencyKey: eventKeys.reminder(overdueId, yesterday),
     recipientId: members.tom,
     status: "sent",
     attempts: 1,

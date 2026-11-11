@@ -71,3 +71,7 @@ _Avoid_: Status line, log
 **Workflow error**:
 A failure of an automation run as a whole, rather than of one email: a failed n8n execution, a missed Reminder run, or a Reminder run that couldn't be started. Admins see it in Automation health.
 _Avoid_: Incident
+
+**Automation event**:
+One recorded Notification, Reminder or Workflow error, found by its idempotency key so a repeated call never makes a second one. A Notification or Reminder is pending, accepted (handed to n8n), sent or failed; one left waiting too long is stuck, and Admins see failed and stuck ones in Automation health.
+_Avoid_: Job, outbox message

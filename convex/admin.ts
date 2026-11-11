@@ -16,7 +16,7 @@ import { adminMutation, adminQuery } from "./lib/functions";
 import { displayName, lenderOf } from "./lib/members";
 import { queueToolRemovedNotification, subjectOf } from "./lib/notifications";
 import { overdueLoans } from "./lib/overdue";
-import { lastReminderRunAt } from "./lib/reminders";
+import { lastReminderRunAt } from "./lib/automationEvents";
 import { pendingRequestsOf, transitionRequest } from "./lib/requestLifecycle";
 import { requestRow } from "./lib/requestRows";
 import { REASON_MAX } from "./lib/toolFields";
