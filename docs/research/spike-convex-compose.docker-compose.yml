@@ -1,0 +1,40 @@
+# Throwaway spike for rtmkvtn/lendloop-test#13. Dev-only dummy secrets.
+name: convex-spike
+services:
+  convex-backend:
+    image: ghcr.io/convex/convex-backend:${CONVEX_REV:-d1fcbeaf939502a23a0f4b7e9095a12e84866294}
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports: ["3210:3210", "3211:3211"]
+    volumes: [convex-data:/convex/data]
+    environment:
+      INSTANCE_NAME: ${CONVEX_INSTANCE_NAME:-lendloop-dev}
+      INSTANCE_SECRET: ${CONVEX_INSTANCE_SECRET:-0000000000000000000000000000000000000000000000000000000000000001}
+      CONVEX_CLOUD_ORIGIN: http://127.0.0.1:3210
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      DISABLE_BEACON: "1"
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 10s
+
+  convex-dashboard:
+    image: ghcr.io/convex/convex-dashboard:${CONVEX_REV:-d1fcbeaf939502a23a0f4b7e9095a12e84866294}
+    ports: ["6791:6791"]
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: http://127.0.0.1:3210
+    depends_on:
+      convex-backend: { condition: service_healthy }
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    ports: ["5678:5678"]
+    environment:
+      N8N_ENCRYPTION_KEY: spike-dev-only-encryption-key
+      GENERIC_TIMEZONE: UTC
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    volumes: [n8n-data:/home/node/.n8n]
+
+volumes:
+  convex-data:
+  n8n-data:

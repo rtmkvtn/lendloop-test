@@ -1,0 +1,1171 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway. Question: what should LendLoop's screens look like?
+     Three structurally different shells (?variant=A|B|C), in-memory stub data, no backend.
+     Open the file in a browser; ← → or the bottom bar switch variants; the role pill switches viewer. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LendLoop prototype</title>
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --fg: #1c1917;
+        --muted: #78716c;
+        --line: #e7e5e4;
+        --card: #fff;
+        --accent: #166534;
+        --accent-bg: #dcfce7;
+        --warn: #9a3412;
+        --warn-bg: #ffedd5;
+        --bad: #991b1b;
+        --bad-bg: #fee2e2;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          15px/1.45 system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 8px;
+        padding: 6px 12px;
+      }
+      button.primary {
+        background: var(--fg);
+        color: #fff;
+        border-color: var(--fg);
+      }
+      button.link {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--accent);
+        text-decoration: underline;
+      }
+      input,
+      select {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 7px 10px;
+        background: #fff;
+        width: 100%;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin: 10px 0 4px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 13px;
+      }
+      .pill {
+        display: inline-block;
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #f5f5f4;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .ok {
+        background: var(--accent-bg);
+        color: var(--accent);
+      }
+      .warn {
+        background: var(--warn-bg);
+        color: var(--warn);
+      }
+      .bad {
+        background: var(--bad-bg);
+        color: var(--bad);
+      }
+      .trusted {
+        background: #e0e7ff;
+        color: #3730a3;
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 12px 0;
+      }
+      .chip {
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 13px;
+      }
+      .chip.on {
+        background: var(--fg);
+        color: #fff;
+        border-color: var(--fg);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .activity {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .activity.failed {
+        color: var(--bad);
+      }
+      .empty {
+        padding: 32px;
+        text-align: center;
+        color: var(--muted);
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+      }
+      .modal-back {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 10;
+      }
+      .modal {
+        background: #fff;
+        border-radius: 14px;
+        padding: 20px;
+        width: min(440px, 100%);
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+      }
+      .row > * {
+        flex: 1;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+      .toast {
+        position: fixed;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--fg);
+        color: #fff;
+        padding: 8px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 20;
+      }
+
+      /* landing (shared by all variants: the public page is fixed by the brief) */
+      .landing {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 64px 16px;
+      }
+      .landing h1 {
+        font-size: 44px;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+      .landing .tag {
+        font-size: 20px;
+        color: var(--muted);
+        margin: 6px 0 24px;
+      }
+      .landing ul {
+        list-style: none;
+        padding: 0;
+        margin: 24px 0;
+        border-top: 1px solid var(--line);
+      }
+      .landing li {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      /* Variant A: sidebar + dense table */
+      .A {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        min-height: 100vh;
+      }
+      .A nav {
+        border-right: 1px solid var(--line);
+        padding: 20px 12px;
+        background: #fff;
+      }
+      .A nav b {
+        display: block;
+        padding: 0 10px 16px;
+        font-size: 18px;
+      }
+      .A nav button {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        border: 0;
+        text-align: left;
+        padding: 8px 10px;
+        background: none;
+      }
+      .A nav button.on {
+        background: #f5f5f4;
+        font-weight: 600;
+      }
+      .A main {
+        padding: 24px 32px;
+        max-width: 1000px;
+      }
+      .A .drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(400px, 100%);
+        background: #fff;
+        border-left: 1px solid var(--line);
+        padding: 20px;
+        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.06);
+        z-index: 5;
+      }
+
+      /* Variant B: top tabs + card grid */
+      .B header {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 14px 24px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+        flex-wrap: wrap;
+      }
+      .B header b {
+        font-size: 18px;
+      }
+      .B .tabs {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .B .tabs button {
+        border: 0;
+        background: none;
+      }
+      .B .tabs button.on {
+        background: #f5f5f4;
+        font-weight: 600;
+      }
+      .B main {
+        padding: 24px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      .B .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 14px;
+      }
+      .B .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .B .card h3 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      /* Variant C: inbox split pane, request flow lives in the detail pane */
+      .C {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+      }
+      .C header {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        flex-wrap: wrap;
+      }
+      .C header select {
+        width: auto;
+      }
+      .C .split {
+        display: grid;
+        grid-template-columns: minmax(260px, 380px) 1fr;
+        min-height: 0;
+      }
+      .C .list {
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+      .C .item {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+      }
+      .C .item.on {
+        background: #f5f5f4;
+      }
+      .C .detail {
+        overflow: auto;
+        padding: 24px 32px;
+      }
+      .C .timeline {
+        border-left: 2px solid var(--line);
+        padding-left: 14px;
+        margin: 12px 0;
+      }
+      .C .timeline div {
+        margin: 6px 0;
+        font-size: 13px;
+      }
+
+      @media (max-width: 720px) {
+        .A {
+          grid-template-columns: 1fr;
+        }
+        .A nav {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          display: flex;
+          overflow: auto;
+          padding: 8px;
+        }
+        .A nav b {
+          display: none;
+        }
+        .A nav button {
+          width: auto;
+          white-space: nowrap;
+        }
+        .A main {
+          padding: 16px;
+        }
+        .C .split {
+          grid-template-columns: 1fr;
+        }
+        .C .list {
+          max-height: 40vh;
+        }
+        table {
+          font-size: 13px;
+        }
+        th,
+        td {
+          padding: 8px;
+        }
+      }
+
+      #switcher {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #111;
+        color: #fff;
+        padding: 6px 8px;
+        border-radius: 999px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+        z-index: 30;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      #switcher button {
+        background: #333;
+        color: #fff;
+        border: 0;
+        border-radius: 999px;
+        padding: 4px 10px;
+      }
+      #switcher .sep {
+        width: 1px;
+        height: 18px;
+        background: #444;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="switcher"></div>
+    <script>
+      const CATEGORIES = {
+        power_tools: "Power tools",
+        hand_tools: "Hand tools",
+        garden: "Garden",
+        kitchen: "Kitchen",
+        camping: "Camping",
+        cleaning: "Cleaning",
+        other: "Other",
+      };
+      const CONDITIONS = {
+        new: "New",
+        good: "Good",
+        fair: "Fair",
+        worn: "Worn",
+      };
+      const TODAY = "2026-11-10";
+      const VARIANTS = {
+        A: "Sidebar + table + drawer",
+        B: "Top tabs + cards + modal",
+        C: "Inbox split pane",
+      };
+      const ROLES = ["signed out", "member", "admin"];
+
+      const users = {
+        u1: { name: "Sam Rivera", trusted: true },
+        u2: { name: "Priya Shah", trusted: false },
+        u3: { name: "Jonas Weber", trusted: true },
+        u4: { name: "Mia Chen", trusted: false },
+      };
+      let tools = [
+        {
+          id: "t1",
+          owner: "u1",
+          name: "Cordless drill",
+          category: "power_tools",
+          condition: "good",
+          description: "18V, two batteries, bit set included.",
+        },
+        {
+          id: "t2",
+          owner: "u2",
+          name: "Pressure washer",
+          category: "cleaning",
+          condition: "fair",
+          description: "Works well, hose is a bit short.",
+        },
+        {
+          id: "t3",
+          owner: "u3",
+          name: "4-person tent",
+          category: "camping",
+          condition: "good",
+          description: "Dome tent, footprint included.",
+        },
+        {
+          id: "t4",
+          owner: "u1",
+          name: "Hedge trimmer",
+          category: "garden",
+          condition: "worn",
+          description: "Electric, 10 m cable.",
+        },
+        {
+          id: "t5",
+          owner: "u4",
+          name: "Stand mixer",
+          category: "kitchen",
+          condition: "new",
+          description: "With dough hook and whisk.",
+        },
+        {
+          id: "t6",
+          owner: "u3",
+          name: "Ladder 3 m",
+          category: "hand_tools",
+          condition: "good",
+          description: "Aluminium, folding.",
+        },
+        {
+          id: "t7",
+          owner: "u2",
+          name: "Camping stove",
+          category: "camping",
+          condition: "good",
+          description: "Single burner, gas not included.",
+        },
+      ];
+      let requests = [
+        {
+          id: "r1",
+          tool: "t2",
+          borrower: "u1",
+          lender: "u2",
+          start: "2026-11-01",
+          end: "2026-11-07",
+          status: "approved",
+        },
+        {
+          id: "r2",
+          tool: "t3",
+          borrower: "u1",
+          lender: "u3",
+          start: "2026-11-20",
+          end: "2026-11-23",
+          status: "pending",
+        },
+        {
+          id: "r3",
+          tool: "t1",
+          borrower: "u2",
+          lender: "u1",
+          start: "2026-11-12",
+          end: "2026-11-14",
+          status: "pending",
+        },
+        {
+          id: "r4",
+          tool: "t4",
+          borrower: "u4",
+          lender: "u1",
+          start: "2026-11-08",
+          end: "2026-11-15",
+          status: "approved",
+        },
+        {
+          id: "r5",
+          tool: "t6",
+          borrower: "u4",
+          lender: "u3",
+          start: "2026-10-20",
+          end: "2026-10-22",
+          status: "returned",
+        },
+        {
+          id: "r6",
+          tool: "t5",
+          borrower: "u1",
+          lender: "u4",
+          start: "2026-11-05",
+          end: "2026-11-06",
+          status: "declined",
+        },
+        {
+          id: "r7",
+          tool: "t3",
+          borrower: "u2",
+          lender: "u3",
+          start: "2026-11-25",
+          end: "2026-11-28",
+          status: "approved",
+        },
+      ];
+      let events = [
+        {
+          request: "r1",
+          text: "Approval email sent",
+          at: "2026-10-30",
+          status: "sent",
+        },
+        {
+          request: "r1",
+          text: "Reminder sent",
+          at: "2026-11-08",
+          status: "sent",
+        },
+        {
+          request: "r1",
+          text: "Reminder failed (SMTP timeout), retried next run",
+          at: "2026-11-09",
+          status: "failed",
+        },
+        {
+          request: "r1",
+          text: "Reminder sent",
+          at: "2026-11-10",
+          status: "sent",
+        },
+        {
+          request: "r2",
+          text: "Request email sent to lender",
+          at: "2026-11-09",
+          status: "sent",
+        },
+        {
+          request: "r3",
+          text: "Request email sent to lender",
+          at: "2026-11-10",
+          status: "sent",
+        },
+        {
+          request: "r4",
+          text: "Approval email sent",
+          at: "2026-11-07",
+          status: "sent",
+        },
+      ];
+
+      const params = new URLSearchParams(location.search);
+      let state = {
+        variant: params.get("variant") ?? "A",
+        role: params.get("role") ?? "member",
+        view: "board",
+        category: null,
+        selected: null,
+        modal: null,
+        toast: null,
+      };
+      const ME = "u1";
+
+      const fmt = (d) =>
+        new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+        });
+      const daysAgo = (d) => {
+        const n = Math.round((new Date(TODAY) - new Date(d)) / 864e5);
+        return n === 0 ? "today" : n === 1 ? "yesterday" : `${n} days ago`;
+      };
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+
+      function availability(tool) {
+        if (tool.removed)
+          return { label: "Removed", cls: "bad", available: false };
+        const loans = requests.filter(
+          (r) => r.tool === tool.id && r.status === "approved",
+        );
+        const current =
+          loans.find((r) => r.start <= TODAY && TODAY <= r.end) ??
+          loans.find((r) => r.end < TODAY);
+        if (current)
+          return current.end < TODAY
+            ? {
+                label: `Overdue since ${fmt(current.end)}`,
+                cls: "bad",
+                available: false,
+              }
+            : {
+                label: `On loan until ${fmt(current.end)}`,
+                cls: "warn",
+                available: false,
+              };
+        const next = loans
+          .filter((r) => r.start > TODAY)
+          .sort((a, b) => a.start.localeCompare(b.start))[0];
+        return next
+          ? {
+              label: `Available · booked from ${fmt(next.start)}`,
+              cls: "ok",
+              available: true,
+            }
+          : { label: "Available", cls: "ok", available: true };
+      }
+      function statusPill(r) {
+        if (r.status === "approved" && r.end < TODAY)
+          return '<span class="pill bad">Overdue</span>';
+        const cls = {
+          pending: "warn",
+          approved: "ok",
+          returned: "",
+          declined: "bad",
+          cancelled: "",
+        }[r.status];
+        return `<span class="pill ${cls}">${r.status === "approved" ? "On loan" : r.status[0].toUpperCase() + r.status.slice(1)}</span>`;
+      }
+      function lastActivity(r) {
+        const e = events.filter((e) => e.request === r.id).at(-1);
+        return e
+          ? `<div class="activity ${e.status === "failed" ? "failed" : ""}">${esc(e.text)} ${daysAgo(e.at)}</div>`
+          : "";
+      }
+      const lenderName = (id) =>
+        `${esc(users[id].name)}${users[id].trusted ? ' <span class="pill trusted">Trusted</span>' : ""}`;
+      const toolOf = (r) => tools.find((t) => t.id === r.tool);
+
+      function nav() {
+        const views = [
+          ["board", "All tools"],
+          ["listings", "My listings"],
+          ["requests", "My requests"],
+          ["incoming", "Incoming"],
+        ];
+        if (state.role === "admin") views.push(["admin", "Admin"]);
+        const counts = {
+          incoming: requests.filter(
+            (r) => r.lender === ME && r.status === "pending",
+          ).length,
+        };
+        return views.map(([k, l]) => ({ k, l, count: counts[k] }));
+      }
+
+      function actionsFor(r) {
+        const out = [];
+        if (r.lender === ME && r.status === "pending")
+          out.push(
+            `<button class="primary" onclick="act('${r.id}','approved')">Approve</button>`,
+            `<button onclick="act('${r.id}','declined')">Decline</button>`,
+          );
+        if (r.lender === ME && r.status === "approved")
+          out.push(
+            `<button onclick="act('${r.id}','returned')">Mark returned</button>`,
+          );
+        if (r.borrower === ME && r.status === "pending")
+          out.push(
+            `<button onclick="act('${r.id}','cancelled')">Cancel</button>`,
+          );
+        return out.join(" ");
+      }
+
+      function filteredTools() {
+        return tools.filter(
+          (t) =>
+            !t.removed && (!state.category || t.category === state.category),
+        );
+      }
+      function chips() {
+        return `<div class="chips"><button class="chip ${!state.category ? "on" : ""}" onclick="set({category:null})">All</button>${Object.entries(
+          CATEGORIES,
+        )
+          .map(
+            ([k, l]) =>
+              `<button class="chip ${state.category === k ? "on" : ""}" onclick="set({category:'${k}'})">${l}</button>`,
+          )
+          .join("")}</div>`;
+      }
+
+      function requestTable(rows, perspective) {
+        if (!rows.length)
+          return `<div class="empty">${perspective === "incoming" ? "No one has asked to borrow your tools yet." : 'You have not requested anything yet. Browse <button class="link" onclick="set({view:\'board\'})">all tools</button>.'}</div>`;
+        return `<table><tr><th>Tool</th><th>${perspective === "incoming" ? "Borrower" : "Lender"}</th><th>Dates</th><th>Status</th><th></th></tr>${rows
+          .map(
+            (r) => `<tr>
+    <td>${esc(toolOf(r).name)}${lastActivity(r)}</td>
+    <td>${perspective === "incoming" ? esc(users[r.borrower].name) : lenderName(r.lender)}</td>
+    <td>${fmt(r.start)} – ${fmt(r.end)}</td><td>${statusPill(r)}</td><td style="text-align:right">${actionsFor(r)}</td></tr>`,
+          )
+          .join("")}</table>`;
+      }
+
+      function adminView() {
+        const loans = requests.filter((r) =>
+          ["approved", "returned"].includes(r.status),
+        );
+        return `<h2>Admin</h2>
+  <h3>All loans</h3><table><tr><th>Tool</th><th>Lender</th><th>Borrower</th><th>Dates</th><th>Status</th></tr>${loans.map((r) => `<tr><td>${esc(toolOf(r).name)}${lastActivity(r)}</td><td>${lenderName(r.lender)}</td><td>${esc(users[r.borrower].name)}</td><td>${fmt(r.start)} – ${fmt(r.end)}</td><td>${statusPill(r)}</td></tr>`).join("")}</table>
+  <h3>Lenders</h3><table><tr><th>Member</th><th>Tools</th><th></th></tr>${Object.entries(
+    users,
+  )
+    .map(
+      ([id, u]) =>
+        `<tr><td>${lenderName(id)}</td><td>${tools.filter((t) => t.owner === id && !t.removed).length}</td><td style="text-align:right"><button onclick="toggleTrusted('${id}')">${u.trusted ? "Revoke Trusted" : "Mark Trusted Lender"}</button></td></tr>`,
+    )
+    .join("")}</table>
+  <h3>Listings</h3><table><tr><th>Tool</th><th>Lender</th><th></th></tr>${tools
+    .filter((t) => !t.removed)
+    .map(
+      (t) =>
+        `<tr><td>${esc(t.name)}</td><td>${lenderName(t.owner)}</td><td style="text-align:right"><button onclick="set({modal:{kind:'remove', tool:'${t.id}'}})">Remove…</button></td></tr>`,
+    )
+    .join("")}</table>
+  <p><button onclick="toast('Reminder run triggered (signed call to n8n)')">Run reminders now</button> <span class="muted small">Demo only; normally runs daily at 09:00.</span></p>`;
+      }
+
+      function listingsView(cardLayout) {
+        const mine = tools.filter((t) => t.owner === ME);
+        const head = `<div style="display:flex;justify-content:space-between;align-items:center"><h2>My listings</h2><button class="primary" onclick="set({modal:{kind:'tool'}})">List a tool</button></div>`;
+        if (!mine.length)
+          return (
+            head + '<div class="empty">You have not listed anything yet.</div>'
+          );
+        return (
+          head +
+          `<table><tr><th>Tool</th><th>Category</th><th>Condition</th><th>Availability</th><th></th></tr>${mine
+            .map((t) => {
+              const a = availability(t);
+              return `<tr><td>${esc(t.name)}</td><td>${CATEGORIES[t.category]}</td><td>${CONDITIONS[t.condition]}</td><td><span class="pill ${a.cls}">${a.label}</span></td><td style="text-align:right"><button onclick="set({modal:{kind:'tool', tool:'${t.id}'}})">Edit</button> <button onclick="removeOwn('${t.id}')">Delete</button></td></tr>`;
+            })
+            .join("")}</table>`
+        );
+      }
+
+      function landing() {
+        const avail = tools.filter((t) => availability(t).available);
+        return `<div class="landing"><h1>LendLoop</h1><div class="tag">Borrow what you need. Lend what you don't.</div>
+  <button class="primary" onclick="set({role:'member'})">Sign in to lend or borrow</button>
+  <ul>${avail.map((t) => `<li><span>${esc(t.name)}</span><span class="pill">${CATEGORIES[t.category]}</span></li>`).join("")}</ul>
+  <p class="muted small">${avail.length} tools available in your neighbourhood. Owners stay private until you sign in.</p></div>`;
+      }
+
+      function modal() {
+        const m = state.modal;
+        if (!m) return "";
+        let body = "";
+        if (m.kind === "request") {
+          const t = tools.find((t) => t.id === m.tool);
+          body = `<h3>Borrow ${esc(t.name)}</h3><div class="muted small">from ${lenderName(t.owner)} · ${CONDITIONS[t.condition]}</div><p>${esc(t.description)}</p>
+    <div class="row"><div><label>From</label><input type="date" id="from" min="${TODAY}" value="2026-11-16"></div><div><label>To</label><input type="date" id="to" min="${TODAY}" value="2026-11-18"></div></div>
+    <div class="muted small" style="margin-top:8px">Up to 30 days. ${esc(users[t.owner].name.split(" ")[0])} gets an email and approves or declines.</div>
+    <div class="actions"><button onclick="set({modal:null})">Cancel</button><button class="primary" onclick="submitRequest('${t.id}')">Send request</button></div>`;
+        } else if (m.kind === "tool") {
+          const t = tools.find((t) => t.id === m.tool) ?? {
+            name: "",
+            category: "power_tools",
+            condition: "good",
+            description: "",
+          };
+          body = `<h3>${m.tool ? "Edit tool" : "List a tool"}</h3>
+    <label>Name</label><input id="tname" maxlength="80" value="${esc(t.name)}">
+    <div class="row"><div><label>Category</label><select id="tcat">${Object.entries(
+      CATEGORIES,
+    )
+      .map(
+        ([k, l]) =>
+          `<option value="${k}" ${k === t.category ? "selected" : ""}>${l}</option>`,
+      )
+      .join("")}</select></div>
+    <div><label>Condition</label><select id="tcond">${Object.entries(CONDITIONS)
+      .map(
+        ([k, l]) =>
+          `<option value="${k}" ${k === t.condition ? "selected" : ""}>${l}</option>`,
+      )
+      .join("")}</select></div></div>
+    <label>Short description</label><input id="tdesc" maxlength="500" value="${esc(t.description)}">
+    <div class="actions"><button onclick="set({modal:null})">Cancel</button><button class="primary" onclick="saveTool('${m.tool ?? ""}')">Save</button></div>`;
+        } else if (m.kind === "remove") {
+          const t = tools.find((t) => t.id === m.tool);
+          body = `<h3>Remove “${esc(t.name)}”?</h3><p class="muted small">Pending requests are declined and both parties are emailed. A live loan stays visible until returned.</p>
+    <label>Reason (shown to the lender)</label><input id="reason" placeholder="e.g. Unsafe item">
+    <div class="actions"><button onclick="set({modal:null})">Cancel</button><button class="primary" onclick="adminRemove('${t.id}')">Remove listing</button></div>`;
+        }
+        return state.variant === "A" && m.kind === "request"
+          ? `<div class="drawer">${body}</div>`
+          : `<div class="modal-back" onclick="if(event.target===this)set({modal:null})"><div class="modal">${body}</div></div>`;
+      }
+
+      function variantA() {
+        let main = "";
+        if (state.view === "board")
+          main = `<h2>All tools</h2>${chips()}<table><tr><th>Tool</th><th>Category</th><th>Lender</th><th>Availability</th><th></th></tr>${filteredTools()
+            .map((t) => {
+              const a = availability(t);
+              return `<tr><td>${esc(t.name)}<div class="activity">${CONDITIONS[t.condition]} · ${esc(t.description)}</div></td><td>${CATEGORIES[t.category]}</td><td>${lenderName(t.owner)}</td><td><span class="pill ${a.cls}">${a.label}</span></td><td style="text-align:right">${t.owner === ME ? '<span class="muted small">Yours</span>' : `<button onclick="set({modal:{kind:'request', tool:'${t.id}'}})">Request</button>`}</td></tr>`;
+            })
+            .join("")}</table>`;
+        if (state.view === "listings") main = listingsView();
+        if (state.view === "requests")
+          main =
+            `<h2>My requests</h2>` +
+            requestTable(
+              requests.filter((r) => r.borrower === ME),
+              "mine",
+            );
+        if (state.view === "incoming")
+          main =
+            `<h2>Incoming requests</h2>` +
+            requestTable(
+              requests.filter((r) => r.lender === ME),
+              "incoming",
+            );
+        if (state.view === "admin") main = adminView();
+        return `<div class="A"><nav><b>LendLoop</b>${nav()
+          .map(
+            (n) =>
+              `<button class="${state.view === n.k ? "on" : ""}" onclick="set({view:'${n.k}'})"><span>${n.l}</span>${n.count ? `<span class="pill warn">${n.count}</span>` : ""}</button>`,
+          )
+          .join("")}
+  <div style="margin-top:24px;padding:0 10px" class="small muted">${esc(users[ME].name)}<br><button class="link" onclick="set({role:'signed out'})">Sign out</button></div></nav><main>${main}</main></div>`;
+      }
+
+      function variantB() {
+        let main = "";
+        if (state.view === "board")
+          main = `${chips()}<div class="grid">${filteredTools()
+            .map((t) => {
+              const a = availability(t);
+              return `<div class="card"><span class="pill" style="align-self:flex-start">${CATEGORIES[t.category]}</span><h3>${esc(t.name)}</h3><div class="small muted">${esc(t.description)}</div><div class="small">${lenderName(t.owner)} · ${CONDITIONS[t.condition]}</div><div><span class="pill ${a.cls}">${a.label}</span></div><div style="margin-top:auto">${t.owner === ME ? '<span class="muted small">Your listing</span>' : `<button class="primary" style="width:100%" onclick="set({modal:{kind:'request', tool:'${t.id}'}})">Request to borrow</button>`}</div></div>`;
+            })
+            .join("")}</div>`;
+        if (state.view === "listings") main = listingsView(true);
+        if (state.view === "requests")
+          main =
+            `<h2>My requests</h2>` +
+            requestTable(
+              requests.filter((r) => r.borrower === ME),
+              "mine",
+            );
+        if (state.view === "incoming")
+          main =
+            `<h2>Incoming requests</h2>` +
+            requestTable(
+              requests.filter((r) => r.lender === ME),
+              "incoming",
+            );
+        if (state.view === "admin") main = adminView();
+        return `<div class="B"><header><b>LendLoop</b><div class="tabs">${nav()
+          .map(
+            (n) =>
+              `<button class="${state.view === n.k ? "on" : ""}" onclick="set({view:'${n.k}'})">${n.l}${n.count ? ` <span class="pill warn">${n.count}</span>` : ""}</button>`,
+          )
+          .join(
+            "",
+          )}</div><span style="margin-left:auto" class="small muted">${esc(users[ME].name)} · <button class="link" onclick="set({role:'signed out'})">Sign out</button></span></header><main>${main}</main></div>`;
+      }
+
+      function variantC() {
+        const mode = state.view;
+        let items = [],
+          detail = '<div class="empty">Select something on the left.</div>';
+        if (mode === "board") {
+          items = filteredTools().map((t) => ({
+            id: t.id,
+            html: `<b>${esc(t.name)}</b><div class="small muted">${CATEGORIES[t.category]} · ${lenderName(t.owner)}</div><span class="pill ${availability(t).cls}">${availability(t).label}</span>`,
+          }));
+          const t = tools.find((t) => t.id === state.selected);
+          if (t) {
+            const loans = requests.filter(
+              (r) =>
+                r.tool === t.id && r.status === "approved" && r.end >= TODAY,
+            );
+            detail = `<span class="pill">${CATEGORIES[t.category]}</span><h2 style="margin:8px 0">${esc(t.name)}</h2><div>${lenderName(t.owner)} · ${CONDITIONS[t.condition]}</div><p>${esc(t.description)}</p>
+      <h4>Booked</h4>${loans.length ? loans.map((r) => `<div class="small">${fmt(r.start)} – ${fmt(r.end)}</div>`).join("") : '<div class="small muted">Nothing booked.</div>'}
+      ${t.owner === ME ? '<p class="muted">This is your listing.</p>' : `<h4>Request to borrow</h4><div class="row" style="max-width:420px"><div><label>From</label><input type="date" id="from" value="2026-11-16"></div><div><label>To</label><input type="date" id="to" value="2026-11-18"></div></div><div class="actions" style="justify-content:flex-start"><button class="primary" onclick="submitRequest('${t.id}')">Send request</button></div>`}`;
+          }
+        } else if (mode === "requests" || mode === "incoming") {
+          const rows = requests.filter((r) =>
+            mode === "requests" ? r.borrower === ME : r.lender === ME,
+          );
+          items = rows.map((r) => ({
+            id: r.id,
+            html: `<b>${esc(toolOf(r).name)}</b> ${statusPill(r)}<div class="small muted">${fmt(r.start)} – ${fmt(r.end)} · ${mode === "incoming" ? esc(users[r.borrower].name) : esc(users[r.lender].name)}</div>`,
+          }));
+          const r = requests.find((r) => r.id === state.selected);
+          if (r)
+            detail = `<h2 style="margin:0 0 4px">${esc(toolOf(r).name)} ${statusPill(r)}</h2><div class="muted">${fmt(r.start)} – ${fmt(r.end)} · Lender ${lenderName(r.lender)} · Borrower ${esc(users[r.borrower].name)}</div>
+      <div class="actions" style="justify-content:flex-start">${actionsFor(r) || '<span class="muted small">No actions available.</span>'}</div>
+      <h4>Activity</h4><div class="timeline">${
+        events
+          .filter((e) => e.request === r.id)
+          .map(
+            (e) =>
+              `<div class="${e.status === "failed" ? "activity failed" : ""}">${esc(e.text)} · ${daysAgo(e.at)}</div>`,
+          )
+          .join("") || '<div class="muted">No automation yet.</div>'
+      }</div>`;
+        }
+        const full =
+          mode === "listings"
+            ? listingsView()
+            : mode === "admin"
+              ? adminView()
+              : null;
+        return `<div class="C"><header><b>LendLoop</b><select onchange="set({view:this.value, selected:null})">${nav()
+          .map(
+            (n) =>
+              `<option value="${n.k}" ${state.view === n.k ? "selected" : ""}>${n.l}${n.count ? ` (${n.count})` : ""}</option>`,
+          )
+          .join("")}</select>
+  ${
+    mode === "board"
+      ? `<select onchange="set({category:this.value||null, selected:null})"><option value="">All categories</option>${Object.entries(
+          CATEGORIES,
+        )
+          .map(
+            ([k, l]) =>
+              `<option value="${k}" ${state.category === k ? "selected" : ""}>${l}</option>`,
+          )
+          .join("")}</select>`
+      : ""
+  }
+  <span style="margin-left:auto" class="small muted">${esc(users[ME].name)} · <button class="link" onclick="set({role:'signed out'})">Sign out</button></span></header>
+  ${full ? `<div style="overflow:auto;padding:24px 32px">${full}</div>` : `<div class="split"><div class="list">${items.map((i) => `<div class="item ${state.selected === i.id ? "on" : ""}" onclick="set({selected:'${i.id}'})">${i.html}</div>`).join("") || '<div class="empty" style="margin:16px">Nothing here yet.</div>'}</div><div class="detail">${detail}</div></div>`}</div>`;
+      }
+
+      function render() {
+        if (state.role === "signed out")
+          document.getElementById("app").innerHTML = landing();
+        else
+          document.getElementById("app").innerHTML =
+            { A: variantA, B: variantB, C: variantC }[state.variant]() +
+            modal();
+        if (state.toast)
+          document
+            .getElementById("app")
+            .insertAdjacentHTML(
+              "beforeend",
+              `<div class="toast">${esc(state.toast)}</div>`,
+            );
+        const keys = Object.keys(VARIANTS);
+        document.getElementById("switcher").innerHTML =
+          `<button onclick="cycle(-1)">←</button><span>${state.variant} (${VARIANTS[state.variant]})</span><button onclick="cycle(1)">→</button><span class="sep"></span><button onclick="cycleRole()">viewer: ${state.role}</button>`;
+        console.log("state", JSON.parse(JSON.stringify({ state, requests })));
+      }
+      function set(patch) {
+        Object.assign(state, patch);
+        if (patch.view && state.role !== "admin" && patch.view === "admin")
+          state.view = "board";
+        const p = new URLSearchParams({
+          variant: state.variant,
+          role: state.role,
+        });
+        history.replaceState(null, "", "?" + p);
+        render();
+      }
+      function cycle(d) {
+        const k = Object.keys(VARIANTS);
+        set({
+          variant: k[(k.indexOf(state.variant) + d + k.length) % k.length],
+          modal: null,
+          selected: null,
+        });
+      }
+      function cycleRole() {
+        const i = ROLES.indexOf(state.role);
+        const role = ROLES[(i + 1) % ROLES.length];
+        set({
+          role,
+          view:
+            role !== "admin" && state.view === "admin" ? "board" : state.view,
+        });
+      }
+      function toast(msg) {
+        set({ toast: msg });
+        setTimeout(() => set({ toast: null }), 2200);
+      }
+      function act(id, to) {
+        const r = requests.find((r) => r.id === id);
+        if (
+          to === "approved" &&
+          requests.some(
+            (o) =>
+              o.id !== id &&
+              o.tool === r.tool &&
+              o.status === "approved" &&
+              o.start <= r.end &&
+              r.start <= o.end,
+          )
+        )
+          return toast("Those dates overlap an existing loan");
+        r.status = to;
+        events.push({
+          request: id,
+          text: `${to[0].toUpperCase() + to.slice(1)} email sent`,
+          at: TODAY,
+          status: "sent",
+        });
+        toast(`Request ${to}`);
+      }
+      function submitRequest(toolId) {
+        const from = document.getElementById("from").value,
+          to = document.getElementById("to").value,
+          t = tools.find((t) => t.id === toolId);
+        if (!from || !to || to < from) return toast("Pick a valid date range");
+        if (
+          requests.some(
+            (o) =>
+              o.tool === toolId &&
+              o.status === "approved" &&
+              o.start <= to &&
+              from <= o.end,
+          )
+        )
+          return toast("Those dates overlap an existing loan");
+        const id = "r" + (requests.length + 1);
+        requests.push({
+          id,
+          tool: toolId,
+          borrower: ME,
+          lender: t.owner,
+          start: from,
+          end: to,
+          status: "pending",
+        });
+        events.push({
+          request: id,
+          text: "Request email sent to lender",
+          at: TODAY,
+          status: "sent",
+        });
+        set({ modal: null });
+        toast("Request sent");
+      }
+      function saveTool(id) {
+        const v = {
+          name: document.getElementById("tname").value.trim(),
+          category: document.getElementById("tcat").value,
+          condition: document.getElementById("tcond").value,
+          description: document.getElementById("tdesc").value.trim(),
+        };
+        if (!v.name) return toast("Name is required");
+        if (id)
+          Object.assign(
+            tools.find((t) => t.id === id),
+            v,
+          );
+        else tools.push({ id: "t" + (tools.length + 1), owner: ME, ...v });
+        set({ modal: null });
+        toast("Saved");
+      }
+      function removeOwn(id) {
+        if (requests.some((r) => r.tool === id && r.status === "approved"))
+          return toast("Mark the loan returned first");
+        tools.find((t) => t.id === id).removed = true;
+        toast("Deleted");
+      }
+      function adminRemove(id) {
+        tools.find((t) => t.id === id).removed = true;
+        requests
+          .filter((r) => r.tool === id && r.status === "pending")
+          .forEach((r) => (r.status = "declined"));
+        set({ modal: null });
+        toast("Listing removed");
+      }
+      function toggleTrusted(id) {
+        users[id].trusted = !users[id].trusted;
+        toast(users[id].trusted ? "Marked Trusted Lender" : "Trusted removed");
+      }
+      document.addEventListener("keydown", (e) => {
+        if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+      render();
+    </script>
+  </body>
+</html>
