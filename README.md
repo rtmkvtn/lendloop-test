@@ -250,7 +250,10 @@ stateDiagram-v2
 ```
 
 Every transition goes through `transitionRequest` in `convex/lib/requestLifecycle.ts`, which checks
-this table and, in the same transaction, appends the audit row and queues the Notification.
+this table and, in the same transaction, appends the audit row and queues the Notification. A
+Member's actions (approve, decline, mark returned, cancel) are one table in the same file: who may
+take each one and what blocks it. The same table gives each Request row its buttons and is what
+the mutations check, so the UI never offers an action the server would refuse.
 
 Rules on dates: no start before today, end not before start, at most 30 days, and no overlap with an
 existing Loan (`CONFLICT`). Pending Requests may overlap each other; approval re-checks overlap

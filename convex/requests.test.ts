@@ -310,6 +310,44 @@ describe("the transition table", () => {
   });
 });
 
+describe("offered actions", () => {
+  const ACTIONS = ["approve", "decline", "markReturned", "cancel"] as const;
+  const states: Record<string, { path: Transition[]; at?: string }> = {
+    pending: { path: [] },
+    "pending, dates passed": { path: [], at: "2026-11-15T12:00:00Z" },
+    approved: { path: ["approve"] },
+    declined: { path: ["decline"] },
+    cancelled: { path: ["cancel"] },
+    returned: { path: ["approve", "markReturned"] },
+  };
+  const cases = Object.keys(states).flatMap((state) =>
+    (["Lender", "Borrower"] as const).flatMap((party) =>
+      ACTIONS.map((action) => [state, party, action] as const),
+    ),
+  );
+
+  test.each(cases)(
+    "%s, as %s: %s is accepted exactly when it is offered",
+    async (state, party, action) => {
+      const c = await withPendingRequest();
+      for (const earlier of states[state]!.path) await run(c, earlier);
+      if (states[state]!.at) vi.setSystemTime(new Date(states[state]!.at!));
+      const as = party === "Lender" ? c.anna.as : c.ben.as;
+      const { actions } = await as.query(api.requests.get, {
+        requestId: c.requestId,
+      });
+      const call = as.mutation(api.requests[action], {
+        requestId: c.requestId,
+      });
+      if (actions.includes(action)) {
+        await call;
+      } else {
+        await expect(call).rejects.toMatchObject({ data: {} });
+      }
+    },
+  );
+});
+
 describe("requests.approve", () => {
   test("gives the second of two overlapping approvals CONFLICT", async () => {
     const c = await withPendingRequest();

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { daysInclusive, isCalendarDate, todayInAppTimeZone } from "./lib/dates";
 import { fail } from "./lib/errors";
@@ -9,46 +9,16 @@ import {
   automationEventsOf,
   queueNotification,
 } from "./lib/notifications";
-import { hasEnded } from "./lib/overdue";
-import { MAX_REQUEST_DAYS } from "./lib/requestFields";
+import { MAX_REQUEST_DAYS, type RequestAction } from "./lib/requestFields";
 import { requestRow } from "./lib/requestRows";
 import {
   assertNoLoanOverlap,
-  assertTransition,
+  NOT_YOURS,
   pendingRequestsOf,
-  transitionRequest,
+  performAction,
 } from "./lib/requestLifecycle";
 
 type Ctx = QueryCtx & { me: Me };
-
-const NOT_YOURS = "That Request doesn't exist, or it isn't yours.";
-
-async function loadRequestAsParty(ctx: Ctx, requestId: Id<"requests">) {
-  const request = await ctx.db.get("requests", requestId);
-  if (
-    !request ||
-    (request.borrowerId !== ctx.me._id && request.lenderId !== ctx.me._id)
-  ) {
-    fail("NOT_FOUND", NOT_YOURS);
-  }
-  return request;
-}
-
-async function loadRequestAsLender(ctx: Ctx, requestId: Id<"requests">) {
-  const request = await loadRequestAsParty(ctx, requestId);
-  if (request.lenderId !== ctx.me._id) {
-    fail("FORBIDDEN", "Only the Lender can do that.");
-  }
-  return request;
-}
-
-async function loadRequestAsBorrower(ctx: Ctx, requestId: Id<"requests">) {
-  const request = await loadRequestAsParty(ctx, requestId);
-  if (request.borrowerId !== ctx.me._id) {
-    fail("FORBIDDEN", "Only the Borrower can do that.");
-  }
-  return request;
-}
 
 const toRow = (ctx: Ctx, request: Doc<"requests">, today: string) =>
   requestRow(ctx, request, ctx.me._id, today);
@@ -101,44 +71,17 @@ export const create = memberMutation({
   },
 });
 
-export const approve = memberMutation({
-  args: vRequestId,
-  handler: async (ctx, { requestId }) => {
-    const request = await loadRequestAsLender(ctx, requestId);
-    assertTransition(request.status, "approved");
-    if (hasEnded(request, todayInAppTimeZone())) {
-      fail("CONFLICT", "These dates have passed. Decline it instead.");
-    }
-    await assertNoLoanOverlap(ctx, request.toolId, request);
-    await transitionRequest(ctx, request, "approved", { actorId: ctx.me._id });
-  },
-});
+const actOnRequest = (action: RequestAction) =>
+  memberMutation({
+    args: vRequestId,
+    handler: async (ctx, { requestId }) =>
+      await performAction(ctx, requestId, action, ctx.me._id),
+  });
 
-export const decline = memberMutation({
-  args: vRequestId,
-  handler: async (ctx, { requestId }) => {
-    const request = await loadRequestAsLender(ctx, requestId);
-    await transitionRequest(ctx, request, "declined", { actorId: ctx.me._id });
-  },
-});
-
-export const markReturned = memberMutation({
-  args: vRequestId,
-  handler: async (ctx, { requestId }) => {
-    const request = await loadRequestAsLender(ctx, requestId);
-    await transitionRequest(ctx, request, "returned", { actorId: ctx.me._id });
-  },
-});
-
-export const cancel = memberMutation({
-  args: vRequestId,
-  handler: async (ctx, { requestId }) => {
-    const request = await loadRequestAsBorrower(ctx, requestId);
-    await transitionRequest(ctx, request, "cancelled", {
-      actorId: ctx.me._id,
-    });
-  },
-});
+export const approve = actOnRequest("approve");
+export const decline = actOnRequest("decline");
+export const markReturned = actOnRequest("markReturned");
+export const cancel = actOnRequest("cancel");
 
 export const listMine = memberQuery({
   args: {},
