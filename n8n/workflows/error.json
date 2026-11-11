@@ -1,0 +1,177 @@
+{
+  "id": "llErrorWf0000001",
+  "name": "LendLoop: error handler",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "e01",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "parameters": {}
+    },
+    {
+      "id": "e02",
+      "name": "Summarise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst ex = j.execution ?? {};\nconst err = ex.error ?? j.trigger?.error ?? {};\nconst scrub = (s) => String(s ?? '').replace(/[^\\s@<>\"']+@[^\\s@<>\"']+/g, '[email]').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst workflowName = scrub(j.workflow?.name) || 'Unknown workflow';\nconst failedNode = scrub(ex.lastNodeExecuted ?? err.node?.name);\nconst message = scrub(err.message) || 'Unknown error';\nconst executionId = ex.id ? String(ex.id) : 'trigger-' + (j.workflow?.id ?? 'unknown') + '-' + Date.now();\nconst executionUrl = typeof ex.url === 'string' ? ex.url : '';\nconst text = [\n  'An n8n run failed.',\n  '',\n  'Workflow: ' + workflowName,\n  'Failed node: ' + (failedNode || 'unknown'),\n  'Error: ' + message,\n  'Execution: ' + (executionUrl || 'no execution was saved (the trigger failed)'),\n  '',\n  'Automation health on the LendLoop Admin page lists it too.',\n].join('\\n');\nreturn [{ json: { executionId, workflowName, failedNode, message, executionUrl, subject: '[LendLoop] n8n run failed: ' + workflowName, text } }];"
+      }
+    },
+    {
+      "id": "e03",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [660, 0],
+      "parameters": {
+        "fromEmail": "LendLoop <noreply@lendloop.local>",
+        "toEmail": "${ADMIN_ALERT_EMAIL}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "llSmtpMailpit001",
+          "name": "LendLoop SMTP (Mailpit)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e04",
+      "name": "Report body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "jsCode": "const s = $('Summarise').first().json;\nconst bodyStr = JSON.stringify({ executionId: s.executionId, workflowName: s.workflowName, failedNode: s.failedNode || undefined, executionUrl: s.executionUrl || undefined, error: s.message });\nconst ts = String(Math.floor(Date.now() / 1000));\nreturn [{ json: { bodyStr, ts, canonical: ts + '.POST./automation/errors.' + bodyStr } }];"
+      }
+    },
+    {
+      "id": "e05",
+      "name": "Sign report",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [1100, 0],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.canonical }}",
+        "dataPropertyName": "sig",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "llCryptoN2C00001",
+          "name": "LendLoop n8n→Convex secret"
+        }
+      }
+    },
+    {
+      "id": "e06",
+      "name": "Report to Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1320, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "http://convex-backend:3211/automation/errors",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "=v1={{ $json.sig }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.bodyStr }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Summarise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Admin": {
+      "main": [
+        [
+          {
+            "node": "Report body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report body": {
+      "main": [
+        [
+          {
+            "node": "Sign report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign report": {
+      "main": [
+        [
+          {
+            "node": "Report to Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

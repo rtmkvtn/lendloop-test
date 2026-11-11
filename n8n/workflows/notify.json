@@ -1,0 +1,421 @@
+{
+  "id": "llNotifyWf000001",
+  "name": "LendLoop: request notifications",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "llErrorWf0000001"
+  },
+  "nodes": [
+    {
+      "id": "n01",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [220, 0],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lendloop/request-event",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "4c0f7a52-2d6e-4b39-9d5a-1e8f0b6a2301"
+    },
+    {
+      "id": "n02",
+      "name": "Canonical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0],
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8');\nconst h = item.json.headers;\nconst ts = String(h['x-lendloop-timestamp'] ?? '');\nreturn [{ json: { canonical: ts + '.POST./webhook/lendloop/request-event.' + raw, ts, sig: String(h['x-lendloop-signature'] ?? ''), raw } }];"
+      }
+    },
+    {
+      "id": "n03",
+      "name": "HMAC",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.canonical }}",
+        "dataPropertyName": "expected",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "llCryptoC2N00001",
+          "name": "LendLoop Convex→n8n secret"
+        }
+      }
+    },
+    {
+      "id": "n04",
+      "name": "Verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst j = $input.first().json;\nconst m = /^v1=([0-9a-f]{64})$/.exec(j.sig);\nconst now = Math.floor(Date.now() / 1000);\nconst tsOk = /^\\d+$/.test(j.ts) && Math.abs(now - Number(j.ts)) <= 300;\nconst sigOk = !!m && crypto.timingSafeEqual(Buffer.from(m[1], 'hex'), Buffer.from(j.expected, 'hex'));\nlet body = null; try { body = JSON.parse(j.raw); } catch {}\nconst shapeOk = !!body && typeof body.eventId === 'string' && typeof body.deliveryId === 'string';\nreturn [{ json: { valid: tsOk && sigOk && shapeOk, body } }];"
+      }
+    },
+    {
+      "id": "n05",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n06",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1320, 220],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"error\":\"unauthorized\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "n07",
+      "name": "Respond 202",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1540, 0],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "n08",
+      "name": "Dedupe deliveryId",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [1760, 0],
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "dedupeValue": "={{ $json.body.deliveryId }}",
+        "options": {
+          "scope": "node",
+          "historySize": 10000
+        }
+      }
+    },
+    {
+      "id": "n09",
+      "name": "Compose",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body;\nconst tool = b.tool.name;\nconst when = !b.dates ? '' : b.dates.start === b.dates.end ? 'on ' + b.dates.start : 'from ' + b.dates.start + ' to ' + b.dates.end;\nconst copy = {\n  'request.created': ['New request for your ' + tool, 'A neighbour would like to borrow your ' + tool + ' ' + when + '. Approve or decline it here:'],\n  'request.cancelled': ['A request for your ' + tool + ' was cancelled', 'The request to borrow your ' + tool + ' ' + when + ' was cancelled. Nothing else to do. Details:'],\n  'request.approved': ['Your request for ' + tool + ' was approved', 'Good news: your request to borrow the ' + tool + ' ' + when + ' was approved. Details:'],\n  'request.declined': ['Your request for ' + tool + ' was declined', 'Your request to borrow the ' + tool + ' ' + when + ' was declined. Details:'],\n  'request.auto_declined': ['Your request for ' + tool + ' was declined', 'The ' + tool + ' was taken off the board, so your request ' + when + ' was declined automatically. Details:'],\n  'tool.removed': ['Your ' + tool + ' was removed from LendLoop', 'An Admin removed your ' + tool + ' from the board. Their reason: ' + b.reason + '\\n\\nAny pending requests for it were declined. A Loan that is already running stays open until you mark it returned. Your listings:'],\n  'request.returned': ['Thanks for returning the ' + tool, 'The ' + tool + ' was marked returned. Thanks for borrowing responsibly. Details:'],\n}[b.event] ?? ['An update on your LendLoop request', 'There is an update on your request for the ' + tool + '. Details:'];\nreturn [{ json: {\n  eventId: b.eventId,\n  to: b.recipient.email,\n  subject: copy[0],\n  text: 'Hi ' + b.recipient.firstName + ',\\n\\n' + copy[1] + '\\n' + b.link + '\\n\\nLendLoop',\n} }];"
+      }
+    },
+    {
+      "id": "n10",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2200, 0],
+      "parameters": {
+        "fromEmail": "LendLoop <noreply@lendloop.local>",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "llSmtpMailpit001",
+          "name": "LendLoop SMTP (Mailpit)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "n11",
+      "name": "Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 0],
+      "parameters": {
+        "jsCode": "return [{ json: { writeBack: { eventId: $('Compose').first().json.eventId, status: 'sent' } } }];"
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 220],
+      "parameters": {
+        "jsCode": "const e = $input.first().json.error;\nconst error = typeof e === 'string' ? e : (e && e.message) || 'The email could not be sent';\nreturn [{ json: { writeBack: { eventId: $('Compose').first().json.eventId, status: 'failed', error: String(error).slice(0, 500) } } }];"
+      }
+    },
+    {
+      "id": "n13",
+      "name": "Write-back body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 0],
+      "parameters": {
+        "jsCode": "const bodyStr = JSON.stringify($input.first().json.writeBack);\nconst ts = String(Math.floor(Date.now() / 1000));\nreturn [{ json: { bodyStr, ts, canonical: ts + '.POST./automation/notifications.' + bodyStr } }];"
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Sign write-back",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [3080, 0],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.canonical }}",
+        "dataPropertyName": "sig",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "llCryptoN2C00001",
+          "name": "LendLoop n8n→Convex secret"
+        }
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Write back",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [3300, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "http://convex-backend:3211/automation/notifications",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "=v1={{ $json.sig }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.bodyStr }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Canonical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Canonical": {
+      "main": [
+        [
+          {
+            "node": "HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HMAC": {
+      "main": [
+        [
+          {
+            "node": "Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond 202",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 202": {
+      "main": [
+        [
+          {
+            "node": "Dedupe deliveryId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe deliveryId": {
+      "main": [
+        [
+          {
+            "node": "Compose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sent": {
+      "main": [
+        [
+          {
+            "node": "Write-back body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed": {
+      "main": [
+        [
+          {
+            "node": "Write-back body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write-back body": {
+      "main": [
+        [
+          {
+            "node": "Sign write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign write-back": {
+      "main": [
+        [
+          {
+            "node": "Write back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

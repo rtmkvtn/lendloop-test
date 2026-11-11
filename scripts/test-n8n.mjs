@@ -1,0 +1,516 @@
+// npm run test:n8n: the Convex ↔ n8n ↔ Mailpit seam, against the running compose
+// stack (`docker compose up -d && npm run setup` first). Signs with node:crypto,
+// independently of convex/lib/signature.ts, so the two implementations check each other.
+import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
+import { before, describe, test } from "node:test";
+import { CONVEX_URL, convex, loadDotEnv, waitFor } from "./lib.mjs";
+
+if (!loadDotEnv()) throw new Error("No .env file. Run `cp .env.example .env`.");
+
+const N8N = "http://127.0.0.1:5678";
+const WEBHOOK_PATH = "/webhook/lendloop/request-event";
+const MAILPIT = "http://127.0.0.1:8025";
+const C2N = process.env.CONVEX_TO_N8N_SECRET;
+const N2C = process.env.N8N_TO_CONVEX_SECRET;
+const RUN = Date.now().toString(36);
+const ISSUER = "https://lendloop.test";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function identity(who, givenName) {
+  return {
+    issuer: ISSUER,
+    subject: `n8n-test-${who}-${RUN}`,
+    name: `${givenName} Test`,
+    givenName,
+    email: `${who}-${RUN}@example.com`,
+  };
+}
+
+async function convexRun(args) {
+  const res = await convex(["run", ...args], {
+    quiet: true,
+    timeoutMs: 60_000,
+  });
+  if (!res.ok) throw new Error(`convex run ${args[0]} failed:\n${res.output}`);
+  return res.stdout.trim() ? JSON.parse(res.stdout) : null;
+}
+
+const call = (fn, args, as) =>
+  convexRun([fn, JSON.stringify(args), "--identity", JSON.stringify(as)]);
+
+const inlineQuery = (js) => convexRun(["--inline-query", js]);
+
+function addDaysUtc(days) {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+async function postToN8n(
+  body,
+  { secret = C2N, ts, signed = true, path = WEBHOOK_PATH } = {},
+) {
+  const timestamp = ts ?? String(Math.floor(Date.now() / 1000));
+  const headers = { "content-type": "application/json" };
+  if (signed) {
+    const hex = createHmac("sha256", secret)
+      .update(`${timestamp}.POST.${path}.${body}`)
+      .digest("hex");
+    headers["x-lendloop-timestamp"] = timestamp;
+    headers["x-lendloop-signature"] = `v1=${hex}`;
+  }
+  return await fetch(`${N8N}${path}`, {
+    method: "POST",
+    headers,
+    body,
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+async function mailCount(to) {
+  const query = encodeURIComponent(`to:"${to}"`);
+  const res = await fetch(`${MAILPIT}/api/v1/search?query=${query}&limit=50`);
+  const data = await res.json();
+  return { count: data.messages_count, messages: data.messages };
+}
+
+async function until(probe, what, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await probe();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await sleep(1000);
+  }
+}
+
+async function eventRow(key) {
+  const rows = await inlineQuery(
+    `await ctx.db.query("automationEvents").withIndex("by_idempotency_key", (q) => q.eq("idempotencyKey", ${JSON.stringify(key)})).collect()`,
+  );
+  return rows[0];
+}
+
+const anna = identity("anna", "Anna");
+const ben = identity("ben", "Ben");
+let requestId;
+let event;
+
+function payload(overrides = {}) {
+  return JSON.stringify({
+    eventId: event._id,
+    deliveryId: `${event._id}#0`,
+    sentAt: new Date().toISOString(),
+    event: "request.created",
+    recipient: { email: anna.email, firstName: "Anna" },
+    tool: { name: `Test ladder ${RUN}` },
+    dates: { start: addDaysUtc(2), end: addDaysUtc(3) },
+    link: `http://localhost:3000/incoming?request=${requestId}`,
+    ...overrides,
+  });
+}
+
+before(async () => {
+  for (const [name, url] of [
+    ["Convex", `${CONVEX_URL}/version`],
+    ["n8n", `${N8N}/healthz`],
+    ["Mailpit", `${MAILPIT}/readyz`],
+  ]) {
+    if (!(await waitFor(url, 60_000))) {
+      throw new Error(`${name} is not reachable at ${url}. Is the stack up?`);
+    }
+  }
+  await call("users:ensureMe", {}, anna);
+  await call("users:ensureMe", {}, ben);
+  const toolId = await call(
+    "tools:create",
+    {
+      name: `Test ladder ${RUN}`,
+      category: "hand_tools",
+      condition: "good",
+      description: "Created by npm run test:n8n.",
+    },
+    anna,
+  );
+  requestId = await call(
+    "requests:create",
+    { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+    ben,
+  );
+});
+
+describe("Notifications through the real stack", () => {
+  test("a new Request emails the Lender and the event ends sent in Convex", async () => {
+    const key = `notify:${requestId}:request.created`;
+    const { messages } = await until(async () => {
+      const mail = await mailCount(anna.email);
+      return mail.count >= 1 && mail;
+    }, "the email to the Lender");
+    assert.equal(messages.length, 1);
+    assert.match(messages[0].Subject, /^New request for your Test ladder/);
+
+    event = await until(async () => {
+      const row = await eventRow(key);
+      return row?.status === "sent" && row;
+    }, "the event to be sent");
+    assert.equal(event.attempts, 1);
+  });
+
+  test("the same deliveryId again gets 202 but no second email", async () => {
+    const res = await postToN8n(payload());
+    assert.equal(res.status, 202);
+    await sleep(5000);
+    assert.equal((await mailCount(anna.email)).count, 1);
+  });
+
+  test("a signed POST with a new deliveryId gets 202 and an email", async () => {
+    const to = `direct-${RUN}@example.com`;
+    const res = await postToN8n(
+      payload({
+        deliveryId: `${event._id}#direct`,
+        recipient: { email: to, firstName: "Dee" },
+      }),
+    );
+    assert.equal(res.status, 202);
+    const mail = await until(async () => {
+      const m = await mailCount(to);
+      return m.count >= 1 && m;
+    }, "the direct email");
+    assert.equal(mail.count, 1);
+    assert.equal((await eventRow(event.idempotencyKey)).status, "sent");
+  });
+
+  for (const [label, options] of [
+    ["unsigned", { signed: false }],
+    ["signed with the n8n → Convex secret", { secret: N2C }],
+    ["stale (400 s old)", { ts: String(Math.floor(Date.now() / 1000) - 400) }],
+    ["from the future", { ts: String(Math.floor(Date.now() / 1000) + 400) }],
+  ]) {
+    test(`a POST that is ${label} gets 401 and no email`, async () => {
+      const to = `rejected-${RUN}@example.com`;
+      const res = await postToN8n(
+        payload({
+          deliveryId: `${event._id}#${label}`,
+          recipient: { email: to, firstName: "Rex" },
+        }),
+        options,
+      );
+      assert.equal(res.status, 401);
+      await sleep(1000);
+      assert.equal((await mailCount(to)).count, 0);
+    });
+  }
+});
+
+describe("Reminders through the real stack", () => {
+  const REMINDERS_PATH = "/webhook/reminders/run";
+  const omar = identity("omar", "Omar");
+  const borrowers = [identity("cleo", "Cleo"), identity("dev", "Dev")];
+  const loanIds = [];
+
+  const remindersOf = (loanId) =>
+    inlineQuery(
+      `(await ctx.db.query("automationEvents").withIndex("by_request", (q) => q.eq("requestId", ${JSON.stringify(loanId)})).collect()).filter((e) => e.kind === "reminder")`,
+    );
+
+  const lastRunAt = async () =>
+    (
+      await inlineQuery(
+        `await ctx.db.query("automationState").withIndex("by_key", (q) => q.eq("key", "reminders")).unique()`,
+      )
+    )?.lastReminderRunAt ?? 0;
+
+  // Borrowers also get the approval Notification, so count Reminders by subject.
+  const reminderMail = async (to) =>
+    (await mailCount(to)).messages.filter((m) =>
+      m.Subject.startsWith("Reminder: "),
+    );
+
+  const sentCounts = async () =>
+    await Promise.all(
+      borrowers.map(async (b) => (await reminderMail(b.email)).length),
+    );
+
+  before(async () => {
+    await call("users:ensureMe", {}, omar);
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+    for (const [i, borrower] of borrowers.entries()) {
+      await call("users:ensureMe", {}, borrower);
+      const toolId = await call(
+        "tools:create",
+        {
+          name: `Test hedge trimmer ${i} ${RUN}`,
+          category: "garden",
+          condition: "good",
+          description: "Created by npm run test:n8n.",
+        },
+        anna,
+      );
+      const loanId = await call(
+        "requests:create",
+        { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+        borrower,
+      );
+      await call("requests:approve", { requestId: loanId }, anna);
+      await convexRun([
+        "devSupport:backdateLoan",
+        JSON.stringify({
+          requestId: loanId,
+          startDate: addDaysUtc(-6 - i),
+          endDate: addDaysUtc(-2 - i),
+        }),
+      ]);
+      loanIds.push(loanId);
+    }
+  });
+
+  test("Run reminders now emails each Overdue Borrower once and marks the Reminder sent", async () => {
+    await call("admin:runRemindersNow", {}, omar);
+    for (const [i, borrower] of borrowers.entries()) {
+      const messages = await until(async () => {
+        const mail = await reminderMail(borrower.email);
+        return mail.length >= 1 && mail;
+      }, `the Reminder to ${borrower.givenName}`);
+      assert.equal(messages.length, 1);
+      assert.match(
+        messages[0].Subject,
+        new RegExp(
+          `^Reminder: the Test hedge trimmer ${i} ${RUN} was due back`,
+        ),
+      );
+      const [row] = await until(async () => {
+        const rows = await remindersOf(loanIds[i]);
+        return rows[0]?.status === "sent" && rows;
+      }, `the Reminder for ${borrower.givenName} to be sent`);
+      assert.match(row.idempotencyKey, /^reminder:[^:]+:\d{4}-\d{2}-\d{2}$/);
+      assert.equal(row.attempts, 1);
+    }
+  });
+
+  test("a second run the same day sends no second email", async () => {
+    const before = await lastRunAt();
+    const res = await postToN8n(
+      JSON.stringify({ requestedAt: new Date().toISOString() }),
+      { path: REMINDERS_PATH },
+    );
+    assert.equal(res.status, 202);
+    await until(
+      async () => (await lastRunAt()) > before,
+      "the second run to reach Convex",
+    );
+    await sleep(5000);
+    assert.deepEqual(await sentCounts(), [1, 1]);
+    for (const loanId of loanIds) {
+      assert.equal((await remindersOf(loanId)).length, 1);
+    }
+  });
+
+  for (const [label, options] of [
+    ["unsigned", { signed: false }],
+    ["signed with the n8n → Convex secret", { secret: N2C }],
+    ["stale (400 s old)", { ts: String(Math.floor(Date.now() / 1000) - 400) }],
+  ]) {
+    test(`a manual trigger that is ${label} gets 401 and starts no run`, async () => {
+      const before = await lastRunAt();
+      const res = await postToN8n("{}", { ...options, path: REMINDERS_PATH });
+      assert.equal(res.status, 401);
+      await sleep(2000);
+      assert.equal(await lastRunAt(), before);
+    });
+  }
+});
+
+describe("Admin moderation through the real stack", () => {
+  const omar = identity("omar", "Omar");
+  const lender = identity("lena", "Lena");
+  const borrower = identity("bo", "Bo");
+  const reason = `Battery recall ${RUN}`;
+  let toolId;
+  let pendingId;
+
+  const mailText = async (id) =>
+    (await (await fetch(`${MAILPIT}/api/v1/message/${id}`)).json()).Text;
+
+  before(async () => {
+    for (const who of [omar, lender, borrower]) {
+      await call("users:ensureMe", {}, who);
+    }
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+    toolId = await call(
+      "tools:create",
+      {
+        name: `Test sander ${RUN}`,
+        category: "power_tools",
+        condition: "fair",
+        description: "Created by npm run test:n8n.",
+      },
+      lender,
+    );
+    pendingId = await call(
+      "requests:create",
+      { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+      borrower,
+    );
+    await call("admin:removeTool", { toolId, reason }, omar);
+  });
+
+  test("the Lender gets a tool.removed email with the reason, and the event ends sent", async () => {
+    const [message] = await until(async () => {
+      const mail = (await mailCount(lender.email)).messages.filter((m) =>
+        m.Subject.startsWith("Your Test sander"),
+      );
+      return mail.length >= 1 && mail;
+    }, "the removal email to the Lender");
+    assert.equal(
+      message.Subject,
+      `Your Test sander ${RUN} was removed from LendLoop`,
+    );
+    assert.match(await mailText(message.ID), new RegExp(reason));
+    const row = await until(async () => {
+      const r = await eventRow(`notify:${toolId}:tool.removed`);
+      return r?.status === "sent" && r;
+    }, "the tool.removed event to be sent");
+    assert.equal(row.attempts, 1);
+  });
+
+  test("the pending Borrower gets the auto-decline email, and the event ends sent", async () => {
+    const [message] = await until(async () => {
+      const mail = (await mailCount(borrower.email)).messages;
+      return mail.length >= 1 && mail;
+    }, "the auto-decline email to the Borrower");
+    assert.equal(
+      message.Subject,
+      `Your request for Test sander ${RUN} was declined`,
+    );
+    assert.match(await mailText(message.ID), /taken off the board/);
+    await until(async () => {
+      const r = await eventRow(`notify:${pendingId}:request.auto_declined`);
+      return r?.status === "sent";
+    }, "the auto-decline event to be sent");
+  });
+});
+
+describe("Failure visibility through the real stack", () => {
+  const omar = identity("omar", "Omar");
+  const alerts = process.env.ADMIN_ALERT_EMAIL || "alerts@lendloop.local";
+
+  const overdueLoanFor = async (borrower, toolName) => {
+    await call("users:ensureMe", {}, borrower);
+    const toolId = await call(
+      "tools:create",
+      {
+        name: toolName,
+        category: "garden",
+        condition: "good",
+        description: "Created by npm run test:n8n.",
+      },
+      anna,
+    );
+    const loanId = await call(
+      "requests:create",
+      { toolId, startDate: addDaysUtc(2), endDate: addDaysUtc(3) },
+      borrower,
+    );
+    await call("requests:approve", { requestId: loanId }, anna);
+    await convexRun([
+      "devSupport:backdateLoan",
+      JSON.stringify({
+        requestId: loanId,
+        startDate: addDaysUtc(-5),
+        endDate: addDaysUtc(-2),
+      }),
+    ]);
+    return loanId;
+  };
+
+  const workflowErrors = () =>
+    inlineQuery(
+      `await ctx.db.query("automationEvents").withIndex("by_kind_updatedAt", (q) => q.eq("kind", "workflow_error")).collect()`,
+    );
+
+  before(async () => {
+    await call("users:ensureMe", {}, omar);
+    await convexRun(["users:promote", JSON.stringify({ email: omar.email })]);
+  });
+
+  test("with SMTP broken, a Reminder is recorded failed and no email is sent", async () => {
+    const { setSmtpPort, DEAD_PORT } = await import("./demo-smtp.mjs");
+    const flo = identity("flo", "Flo");
+    const loanId = await overdueLoanFor(flo, `Test rake ${RUN}`);
+    setSmtpPort(DEAD_PORT);
+    try {
+      await call("admin:runRemindersNow", {}, omar);
+      const [row] = await until(
+        async () => {
+          const rows = await inlineQuery(
+            `(await ctx.db.query("automationEvents").withIndex("by_request", (q) => q.eq("requestId", ${JSON.stringify(loanId)})).collect()).filter((e) => e.kind === "reminder")`,
+          );
+          return rows[0]?.status === "failed" && rows;
+        },
+        "the Reminder to be recorded failed",
+        60_000,
+      );
+      assert.ok(row.lastError);
+      assert.doesNotMatch(row.lastError, /@/);
+      const reminders = (await mailCount(flo.email)).messages.filter((m) =>
+        m.Subject.startsWith("Reminder: "),
+      );
+      assert.equal(reminders.length, 0);
+    } finally {
+      setSmtpPort("1025");
+    }
+  });
+
+  // Forced by giving Convex the wrong n8n → Convex secret: the run's signed
+  // GET gets 401, the run fails, and the Error Workflow fires.
+  test("a failed run emails the alert and records a workflow_error once the secret is back", async () => {
+    const restore = () =>
+      convex(["env", "set", "N8N_TO_CONVEX_SECRET", N2C], { quiet: true });
+    const subject = "[LendLoop] n8n run failed: LendLoop: overdue reminders";
+    const alertsBefore = (await mailCount(alerts)).messages.filter(
+      (m) => m.Subject === subject,
+    ).length;
+    const errorsBefore = new Set((await workflowErrors()).map((e) => e._id));
+
+    const broke = await convex(
+      ["env", "set", "N8N_TO_CONVEX_SECRET", `wrong-${RUN}`],
+      { quiet: true },
+    );
+    assert.ok(broke.ok, broke.output);
+    try {
+      await call("admin:runRemindersNow", {}, omar);
+      const alert = await until(
+        async () => {
+          const mine = (await mailCount(alerts)).messages.filter(
+            (m) => m.Subject === subject,
+          );
+          return mine.length > alertsBefore && mine[0];
+        },
+        "the alert email",
+        90_000,
+      );
+      await restore();
+      const text = (
+        await (await fetch(`${MAILPIT}/api/v1/message/${alert.ID}`)).json()
+      ).Text;
+      assert.match(text, /Failed node: Get Overdue Loans/);
+      assert.match(text, /Execution: http:\/\/localhost:5678\/workflow\//);
+      assert.doesNotMatch(text, /@example\.com/);
+    } finally {
+      await restore();
+    }
+
+    const row = await until(
+      async () =>
+        (await workflowErrors()).find(
+          (e) => !errorsBefore.has(e._id) && e.event === "n8n.execution_failed",
+        ),
+      "the workflow_error row",
+      60_000,
+    );
+    assert.equal(row.workflowName, "LendLoop: overdue reminders");
+    assert.equal(row.failedNode, "Get Overdue Loans");
+    assert.match(row.idempotencyKey, /^workflow_error:n8n:\d+$/);
+    assert.match(row.executionUrl, /^http:\/\/localhost:5678\/workflow\//);
+  });
+});
