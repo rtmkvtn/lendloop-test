@@ -31,6 +31,7 @@ import type * as lib_requestLifecycle from "../lib/requestLifecycle.js";
 import type * as lib_requestRows from "../lib/requestRows.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_toolFields from "../lib/toolFields.js";
+import type * as lib_toolRemoval from "../lib/toolRemoval.js";
 import type * as lib_workflowErrors from "../lib/workflowErrors.js";
 import type * as notifications from "../notifications.js";
 import type * as reminders from "../reminders.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   "lib/requestRows": typeof lib_requestRows;
   "lib/signature": typeof lib_signature;
   "lib/toolFields": typeof lib_toolFields;
+  "lib/toolRemoval": typeof lib_toolRemoval;
   "lib/workflowErrors": typeof lib_workflowErrors;
   notifications: typeof notifications;
   reminders: typeof reminders;

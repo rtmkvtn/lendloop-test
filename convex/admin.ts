@@ -17,9 +17,9 @@ import { displayName, lenderOf } from "./lib/members";
 import { queueToolRemovedNotification, subjectOf } from "./lib/notifications";
 import { overdueLoans } from "./lib/overdue";
 import { lastReminderRunAt } from "./lib/automationEvents";
-import { pendingRequestsOf, transitionRequest } from "./lib/requestLifecycle";
 import { requestRow } from "./lib/requestRows";
 import { REASON_MAX } from "./lib/toolFields";
+import { removeFromBoard } from "./lib/toolRemoval";
 
 // A live Loan doesn't block removal: it stays approved and visible to both
 // parties until the Lender marks it returned.
@@ -36,17 +36,7 @@ export const removeTool = adminMutation({
       fail("NOT_FOUND", "That Tool isn't on the board any more.");
     }
 
-    for (const request of await pendingRequestsOf(ctx, tool._id)) {
-      await transitionRequest(ctx, request, "declined", {
-        actorId: ctx.me._id,
-        auto: true,
-      });
-    }
-    await ctx.db.patch("tools", tool._id, {
-      removedAt: Date.now(),
-      removedBy: ctx.me._id,
-      removalReason: reason,
-    });
+    await removeFromBoard(ctx, tool, { actorId: ctx.me._id, reason });
     await appendAudit(ctx, {
       actorId: ctx.me._id,
       action: "tool.removed",

@@ -4,11 +4,7 @@ import type { QueryCtx } from "./_generated/server";
 import { availabilityOf } from "./lib/availability";
 import { fail } from "./lib/errors";
 import { lenderOf } from "./lib/members";
-import {
-  loansOf,
-  pendingRequestsOf,
-  transitionRequest,
-} from "./lib/requestLifecycle";
+import { loansOf } from "./lib/requestLifecycle";
 import {
   memberMutation,
   memberQuery,
@@ -22,6 +18,7 @@ import {
   vCategory,
   vCondition,
 } from "./lib/toolFields";
+import { removeFromBoard } from "./lib/toolRemoval";
 
 const vToolFields = v.object({
   name: v.string(),
@@ -150,22 +147,13 @@ export const update = memberMutation({
 export const remove = memberMutation({
   args: { toolId: v.id("tools") },
   handler: async (ctx, { toolId }) => {
-    await loadOwnTool(ctx, toolId);
+    const tool = await loadOwnTool(ctx, toolId);
     if ((await loansOf(ctx, toolId)).length > 0) {
       fail(
         "CONFLICT",
         "This Tool has an active or upcoming Loan: mark it returned, or wait until it ends.",
       );
     }
-    for (const request of await pendingRequestsOf(ctx, toolId)) {
-      await transitionRequest(ctx, request, "declined", {
-        actorId: ctx.me._id,
-        auto: true,
-      });
-    }
-    await ctx.db.patch("tools", toolId, {
-      removedAt: Date.now(),
-      removedBy: ctx.me._id,
-    });
+    await removeFromBoard(ctx, tool, { actorId: ctx.me._id });
   },
 });
