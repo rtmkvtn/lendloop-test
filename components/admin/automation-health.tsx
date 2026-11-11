@@ -101,14 +101,20 @@ export function AutomationHealth() {
                       {formatMoment(event.updatedAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busyId === event._id}
-                        onClick={() => onRetry(event._id, event.label)}
-                      >
-                        Retry
-                      </Button>
+                      {event.retryable ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === event._id}
+                          onClick={() => onRetry(event._id, event.label)}
+                        >
+                          Retry
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Earlier day: today&apos;s run covers it
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

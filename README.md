@@ -228,7 +228,7 @@ Schema: [`convex/schema.ts`](convex/schema.ts).
 | `requests`         | `toolId`, `borrowerId`, `lenderId` (copied from the Tool), `startDate`/`endDate` (`YYYY-MM-DD`), `status`, `decidedAt`, `returnedAt`, `cancelledAt`; no free text                   |
 | `automationEvents` | One row per Notification, Reminder or workflow error: `kind`, `event`, unique `idempotencyKey`, `status` (`pending → accepted → sent \| failed`), `attempts`, sanitised `lastError` |
 | `automationState`  | `lastReminderRunAt`, so a dead n8n schedule is visible from Convex                                                                                                                  |
-| `auditLog`         | Append-only: `actorId`, `action`, `target`, `at` for every Request transition and Admin action                                                                                      |
+| `auditLog`         | Append-only: `actorId`, `action`, `target`, `at` for every Request transition, Tool removal (Lender or Admin) and Admin action                                                      |
 
 Category (`power_tools | hand_tools | garden | kitchen | camping | cleaning | other`) and Condition
 (`new | good | fair | worn`) are fixed unions defined once in `convex/lib/toolFields.ts` and shared
@@ -250,7 +250,10 @@ stateDiagram-v2
 ```
 
 Every transition goes through `transitionRequest` in `convex/lib/requestLifecycle.ts`, which checks
-this table and, in the same transaction, appends the audit row and queues the Notification.
+this table and, in the same transaction, appends the audit row and queues the Notification. A
+Member's actions (approve, decline, mark returned, cancel) are one table in the same file: who may
+take each one and what blocks it. The same table gives each Request row its buttons and is what
+the mutations check, so the UI never offers an action the server would refuse.
 
 Rules on dates: no start before today, end not before start, at most 30 days, and no overlap with an
 existing Loan (`CONFLICT`). Pending Requests may overlap each other; approval re-checks overlap
@@ -282,21 +285,21 @@ Clerk proves identity; Convex decides everything else ([ADR 0004](docs/adr/0004-
 - **UI hides, Convex decides.** The sidebar hides Admin for Members and each row shows only the
   actions valid for its status, but the same checks run on the server.
 
-| Function                                                      | Who may call it           | Rule                                                                                                                               |
-| ------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                       |
-| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                              |
-| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                 |
-| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                               |
-| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                 |
-| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` while an approved Loan is running or upcoming; pending Requests are auto-declined                           |
-| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                   |
-| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                       |
-| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                       |
-| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                 |
-| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                    |
-| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Tools, set Trusted Lender, retry an event, run reminders now |
-| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                               |
+| Function                                                      | Who may call it           | Rule                                                                                                                                |
+| ------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `tools.listPublic`                                            | anyone                    | `{ name, category }` of Available Tools only                                                                                        |
+| `users.ensureMe`                                              | signed in                 | creates or refreshes the own row from the token; never sets `role` or `trustedLender`                                               |
+| `users.me`                                                    | anyone                    | own row, or `null` when signed out                                                                                                  |
+| `tools.listBoard`                                             | Member                    | non-removed Tools with Lender display name, Trusted badge and availability; no email                                                |
+| `tools.listMine`, `tools.create`                              | Member                    | own Tools; `ownerId` is the caller                                                                                                  |
+| `tools.update`, `tools.remove`                                | the Lender                | `remove` is `CONFLICT` while an approved Loan is running or upcoming; pending Requests are auto-declined; audited as `tool.removed` |
+| `requests.create`                                             | Member                    | not own Tool (`INVALID`), date rules, no Loan overlap (`CONFLICT`), one pending Request per Tool                                    |
+| `requests.cancel`                                             | the Borrower              | pending only                                                                                                                        |
+| `requests.approve`, `.decline`, `.markReturned`               | the Lender                | per the lifecycle; approve re-checks overlap                                                                                        |
+| `requests.listMine`, `.listIncoming`, `.countPendingIncoming` | Member                    | by the caller's id                                                                                                                  |
+| `requests.get`                                                | Borrower, Lender or Admin | with its timeline; anyone else gets `NOT_FOUND`                                                                                     |
+| `admin.*`                                                     | Admin                     | remove any Tool with a reason (even on loan), list Loans, Lenders and Tools, set Trusted Lender, retry an event, run reminders now  |
+| `users.promote`, seeds, automation write-backs                | internal                  | CLI with the admin key, or HTTP actions after signature verification                                                                |
 
 **Beyond the spec's function list.** A few functions and fields exist that the spec doesn't name:
 `requests.countPendingIncoming` (the sidebar badge on Incoming), `admin.listLenders` (the Lenders
@@ -353,8 +356,10 @@ Replays inside the 300 s window pass the signature check, so every write is idem
   re-sends to others).
 - **n8n write-backs:** 3 × 5 s. A write-back that still fails stops the run.
 - **Admin Retry** (`admin.retryEvent`, audited) keeps the row and its idempotency key. A
-  Notification is delivered again with a fresh backoff; a Reminder triggers a Reminder run, and only
-  while its Loan is still Overdue.
+  Notification is delivered again with a fresh backoff; a Reminder triggers a Reminder run, but only
+  if it is today's Reminder and its Loan is still Overdue. An earlier day's failed Reminder can't be
+  retried (`CONFLICT`), because a Reminder run only writes back today's key; it stays `failed` as
+  history, and today's run covers the Loan.
 
 ### Failure visibility
 
@@ -378,7 +383,8 @@ No automation fails silently.
   a "Reminder run missed" `workflow_error`, once per day.
 - **Run reminders now:** if Convex can't start the n8n run (not configured, unreachable, non-2xx),
   that's recorded as a `workflow_error` too.
-- **Automation health** (Admin page) lists failed and stuck events with **Retry**, the 20 most
+- **Automation health** (Admin page) lists failed and stuck events with **Retry** (an earlier
+  day's failed Reminder is shown as history, without Retry), the 20 most
   recent workflow errors with links to their n8n executions, and the last Reminder run time.
   `tool.removed` Notifications have no Request, so they show here with their Tool's name.
 - n8n keeps failed executions (`EXECUTIONS_DATA_SAVE_ON_ERROR=all`) and prunes after 14 days.
@@ -392,11 +398,10 @@ No automation fails silently.
   stopped run fires the Error Workflow, so it's visible. For a Notification, the event stays
   `accepted` until the stuck-event cron marks it `failed`; an Admin who retries it then sends the
   email a second time, because a retry gets a new `deliveryId`.
-- **Retrying an earlier day's Reminder.** A Reminder run only works on today's `asOf`. Retrying a
-  `failed` Reminder from an earlier day sends today's Reminder (new key) if the Loan is still
-  Overdue, but leaves the old row `pending`. The stuck-event cron marks it `failed` again at its
-  first check after 30 minutes, so it reappears in Automation health. Ignore it once today's
-  Reminder shows `sent`.
+- **An earlier day's failed Reminder stays failed.** A Reminder run only works on today's `asOf`, so
+  Retry refuses an earlier day's Reminder and the row stays `failed` in Automation health as
+  history. That day's Reminder is never re-sent; today's run reminds the Borrower if the Loan is
+  still Overdue.
 - **The Error Workflow fails itself.** Then the only trace is n8n's execution log.
 - **An event fails while n8n is down for hours.** After the last retry (about 1 h 12 min) it is
   `failed` and needs an Admin Retry; nothing re-sends it automatically.

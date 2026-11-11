@@ -346,6 +346,19 @@ describe("tools.remove", () => {
     expect(row?.removedAt).toEqual(expect.any(Number));
   });
 
+  test("audits the removal as tool.removed with the Lender as actor and no reason", async () => {
+    const { t, anna, toolId, readTool } = await annaWithDrill();
+    await anna.as.mutation(api.tools.remove, { toolId });
+    expect(await t.run((ctx) => ctx.db.query("auditLog").collect())).toEqual([
+      expect.objectContaining({
+        actorId: anna.userId,
+        action: "tool.removed",
+        target: toolId,
+      }),
+    ]);
+    expect((await readTool())?.removalReason).toBeUndefined();
+  });
+
   test("gives another Member and an Admin NOT_FOUND and keeps the Tool", async () => {
     const { ben, omar, toolId, readTool } = await annaWithDrill();
     for (const viewer of [ben, omar]) {

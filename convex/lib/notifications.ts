@@ -1,19 +1,70 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { type NotificationEvent, TOOL_REMOVED_EVENT } from "./automationFields";
-import { REMINDER_EVENT } from "./reminders";
+import {
+  type NotificationEvent,
+  REMINDER_EVENT,
+  TOOL_REMOVED_EVENT,
+} from "./automationFields";
+import { eventByKey, eventKeys } from "./automationEvents";
 
-const TO_LENDER: readonly NotificationEvent[] = [
-  "request.created",
-  "request.cancelled",
-];
+type EmailEvent = NotificationEvent | typeof TOOL_REMOVED_EVENT;
+type Audience = "lender" | "borrower";
+
+// Every Notification email, keyed by event. n8n's Compose node in
+// notify.json holds the email copy under the same keys (pinned by a test).
+const EMAILS: Record<
+  EmailEvent,
+  { audience: Audience; kind: string; history?: string }
+> = {
+  "request.created": { audience: "lender", kind: "Request" },
+  "request.cancelled": {
+    audience: "lender",
+    kind: "Cancellation",
+    history: "Cancelled",
+  },
+  "request.approved": {
+    audience: "borrower",
+    kind: "Approval",
+    history: "Approved",
+  },
+  "request.declined": {
+    audience: "borrower",
+    kind: "Decline",
+    history: "Declined",
+  },
+  "request.auto_declined": {
+    audience: "borrower",
+    kind: "Decline",
+    history: "Declined automatically: the Tool was removed",
+  },
+  "request.returned": {
+    audience: "borrower",
+    kind: "Return",
+    history: "Marked returned",
+  },
+  [TOOL_REMOVED_EVENT]: { audience: "lender", kind: "Removal" },
+};
+
+export const EMAIL_EVENTS = Object.keys(EMAILS) as EmailEvent[];
+
+const emailOf = (event: string) =>
+  event in EMAILS ? EMAILS[event as EmailEvent] : null;
+
+function audienceOf(event: NotificationEvent): Audience {
+  return EMAILS[event].audience;
+}
 
 export function recipientOf(
   request: Pick<Doc<"requests">, "lenderId" | "borrowerId">,
   event: NotificationEvent,
 ) {
-  return TO_LENDER.includes(event) ? request.lenderId : request.borrowerId;
+  return audienceOf(event) === "lender" ? request.lenderId : request.borrowerId;
+}
+
+// Audit actions on a Request read as its status history.
+export function historyLabelOf(action: string) {
+  return emailOf(action)?.history ?? action;
 }
 
 export function deliveryIdOf(event: Doc<"automationEvents">) {
@@ -28,7 +79,7 @@ export async function queueNotification(
   event: NotificationEvent,
 ) {
   return await enqueue(ctx, {
-    idempotencyKey: `notify:${request._id}:${event}`,
+    idempotencyKey: eventKeys.notification(request._id, event),
     requestId: request._id,
     event,
     recipientId: recipientOf(request, event),
@@ -40,7 +91,7 @@ export async function queueToolRemovedNotification(
   tool: Pick<Doc<"tools">, "_id" | "ownerId">,
 ) {
   return await enqueue(ctx, {
-    idempotencyKey: `notify:${tool._id}:${TOOL_REMOVED_EVENT}`,
+    idempotencyKey: eventKeys.notification(tool._id, TOOL_REMOVED_EVENT),
     toolId: tool._id,
     event: TOOL_REMOVED_EVENT,
     recipientId: tool.ownerId,
@@ -57,13 +108,7 @@ async function enqueue(
     recipientId: Id<"users">;
   },
 ) {
-  const { idempotencyKey } = row;
-  const existing = await ctx.db
-    .query("automationEvents")
-    .withIndex("by_idempotency_key", (q) =>
-      q.eq("idempotencyKey", idempotencyKey),
-    )
-    .first();
+  const existing = await eventByKey(ctx, row.idempotencyKey);
   if (existing) return existing._id;
 
   const eventId = await ctx.db.insert("automationEvents", {
@@ -77,19 +122,10 @@ async function enqueue(
   return eventId;
 }
 
-const SUBJECT: Record<string, string> = {
-  "request.created": "Request email to lender",
-  "request.cancelled": "Cancellation email to lender",
-  "request.approved": "Approval email to borrower",
-  "request.declined": "Decline email to borrower",
-  "request.auto_declined": "Decline email to borrower",
-  "request.returned": "Return email to borrower",
-  [TOOL_REMOVED_EVENT]: "Removal email to lender",
-  [REMINDER_EVENT]: "Reminder",
-};
-
 export function subjectOf(event: Pick<Doc<"automationEvents">, "event">) {
-  return SUBJECT[event.event] ?? "Email";
+  if (event.event === REMINDER_EVENT) return "Reminder";
+  const email = emailOf(event.event);
+  return email ? `${email.kind} email to ${email.audience}` : "Email";
 }
 
 export function activityOf(event: Doc<"automationEvents">) {

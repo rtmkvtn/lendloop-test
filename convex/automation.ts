@@ -1,10 +1,10 @@
 import { v } from "convex/values";
+import { eventKeys, lastReminderRunAt } from "./lib/automationEvents";
 import { STUCK_AFTER_MS } from "./lib/automationFields";
-import { isStuck } from "./lib/automationPolicy";
+import { isStuck, WAITING_STATUSES } from "./lib/automationPolicy";
 import { hourInAppTimeZone, todayInAppTimeZone } from "./lib/dates";
 import { internalMutation } from "./lib/functions";
 import { overdueLoans } from "./lib/overdue";
-import { lastReminderRunAt } from "./lib/reminders";
 import { recordWorkflowError, WORKFLOW_EVENTS } from "./lib/workflowErrors";
 
 // n8n's daily run is at 09:00 in APP_TIMEZONE; give it an hour.
@@ -21,7 +21,7 @@ export const recordExecutionFailure = internalMutation({
   handler: async (ctx, { executionId, ...rest }) =>
     await recordWorkflowError(ctx, {
       ...rest,
-      idempotencyKey: `workflow_error:n8n:${executionId}`,
+      idempotencyKey: eventKeys.executionFailure(executionId),
       event: WORKFLOW_EVENTS.executionFailed,
     }),
 });
@@ -31,7 +31,7 @@ export const recordTriggerFailure = internalMutation({
   handler: async (ctx, { error }) => {
     const now = Date.now();
     await recordWorkflowError(ctx, {
-      idempotencyKey: `workflow_error:trigger:${now}`,
+      idempotencyKey: eventKeys.triggerFailure(now),
       event: WORKFLOW_EVENTS.triggerFailed,
       workflowName: "LendLoop: overdue reminders",
       error: `Could not start the reminder run: ${error}`,
@@ -46,7 +46,7 @@ export const markStuckEvents = internalMutation({
     const cutoff = now - STUCK_AFTER_MS;
     const waiting = (
       await Promise.all(
-        (["accepted", "pending"] as const).map((status) =>
+        WAITING_STATUSES.map((status) =>
           ctx.db
             .query("automationEvents")
             .withIndex("by_status_updatedAt", (q) =>
@@ -79,7 +79,7 @@ export const checkMissedReminderRun = internalMutation({
     const overdue = await overdueLoans(ctx, today).first();
     if (!overdue) return;
     await recordWorkflowError(ctx, {
-      idempotencyKey: `workflow_error:missed_run:${today}`,
+      idempotencyKey: eventKeys.missedRun(today),
       event: WORKFLOW_EVENTS.missedRun,
       workflowName: "LendLoop: overdue reminders",
       error: "Reminder run missed",
