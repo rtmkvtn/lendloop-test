@@ -7,6 +7,7 @@ import { memberMutation, memberQuery, type Me } from "./lib/functions";
 import {
   activityOf,
   automationEventsOf,
+  historyLabelOf,
   queueNotification,
 } from "./lib/notifications";
 import { MAX_REQUEST_DAYS, type RequestAction } from "./lib/requestFields";
@@ -122,14 +123,6 @@ export const countPendingIncoming = memberQuery({
   },
 });
 
-const HISTORY_LABELS: Record<string, string> = {
-  "request.approved": "Approved",
-  "request.declined": "Declined",
-  "request.auto_declined": "Declined automatically: the Tool was removed",
-  "request.cancelled": "Cancelled",
-  "request.returned": "Marked returned",
-};
-
 export const get = memberQuery({
   args: vRequestId,
   handler: async (ctx, { requestId }) => {
@@ -151,7 +144,7 @@ export const get = memberQuery({
       ...[
         ...audit.map((row) => ({
           entry: {
-            label: HISTORY_LABELS[row.action] ?? row.action,
+            label: historyLabelOf(row.action),
             at: row.at,
             failed: false,
           },
